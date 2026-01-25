@@ -9,7 +9,7 @@
  * 5. Output: 0x-prefixed lowercase hex (66 chars)
  */
 
-import { keccak256 as keccak256Hash } from '@noble/hashes/sha3';
+import { keccak_256 } from '@noble/hashes/sha3';
 import { bytesToHex } from '@noble/hashes/utils';
 import type { LogEntry } from '../ingestion';
 import type { MerkleProof, MerkleTree, Hash } from './index';
@@ -20,7 +20,7 @@ import type { MerkleProof, MerkleTree, Hash } from './index';
  */
 function keccak256(data: string): Hash {
   const bytes = new TextEncoder().encode(data);
-  const hash = keccak256Hash(bytes);
+  const hash = keccak_256(bytes);
   return '0x' + bytesToHex(hash);
 }
 
@@ -104,8 +104,7 @@ export function buildTree(logs: LogEntry[]): MerkleTree {
  */
 export function generateProof(
   log: LogEntry,
-  tree: MerkleTree,
-  allLogs: LogEntry[]
+  tree: MerkleTree
 ): MerkleProof {
   const leafHash = computeLeafHash(log);
   

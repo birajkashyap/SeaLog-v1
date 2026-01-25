@@ -54,7 +54,7 @@ export class VerificationServiceImpl implements VerificationService {
     const tree = buildTree(batchLogs);
 
     // 5. Derive Merkle proof (NOT from database)
-    const proof = generateProof(log, tree, batchLogs);
+    const proof = generateProof(log, tree);
 
     // 6. Verify Merkle proof against batch root
     const leafHash = computeLeafHash(log);

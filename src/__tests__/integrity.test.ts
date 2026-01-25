@@ -9,12 +9,9 @@
  * - Independent verification
  */
 
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { computeLeafHash, buildTree, generateProof, verifyProof } from '../src/merkle/implementation';
-import { storageService } from '../src/storage/implementation';
-import { logIngestionService } from '../src/ingestion/implementation';
-import { batchProcessor } from '../src/batching/implementation';
-import type { LogEntry } from '../src/ingestion';
+import { describe, it, expect } from '@jest/globals';
+import { computeLeafHash, buildTree, generateProof, verifyProof } from '../merkle/implementation';
+import type { LogEntry } from '../ingestion';
 
 describe('Phase 1: Determinism & Integrity Tests', () => {
   describe('Test 1: Deterministic Merkle Root', () => {
@@ -88,8 +85,8 @@ describe('Phase 1: Determinism & Integrity Tests', () => {
       ];
 
       const tree = buildTree(testLogs);
-      const proof1 = generateProof(testLogs[0], tree, testLogs);
-      const proof2 = generateProof(testLogs[1], tree, testLogs);
+      const proof1 = generateProof(testLogs[0], tree);
+      const proof2 = generateProof(testLogs[1], tree);
 
       // Proofs should differ in path
       expect(proof1.path).not.toEqual(proof2.path);
@@ -126,7 +123,7 @@ describe('Phase 1: Determinism & Integrity Tests', () => {
       };
 
       const tree = buildTree([log]);
-      const proof = generateProof(log, tree, [log]);
+      const proof = generateProof(log, tree);
 
       // Tamper with log
       const tamperedLog = { ...log, message: 'TAMPERED' };
@@ -218,7 +215,7 @@ describe('Phase 1: Determinism & Integrity Tests', () => {
       ];
 
       const tree = buildTree(logs);
-      const proof = generateProof(logs[0], tree, logs);
+      const proof = generateProof(logs[0], tree);
 
       // Proof should indicate left position
       expect(proof.path[0]).toBe('left');
@@ -260,7 +257,7 @@ describe('Phase 3: Independent Verification Tests', () => {
     };
 
     const tree = buildTree([log]);
-    const proof = generateProof(log, tree, [log]);
+    const proof = generateProof(log, tree);
 
     // This is what an offline auditor would do:
     // 1. Recompute leaf hash from log data

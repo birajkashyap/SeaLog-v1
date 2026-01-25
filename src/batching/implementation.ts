@@ -51,7 +51,7 @@ export class BatchProcessorImpl implements BatchProcessor {
 
     // Generate and store Merkle proofs (cache only)
     for (const log of logs) {
-      const proof = generateProof(log, tree, logs);
+      const proof = generateProof(log, tree);
       await storageService.storeMerkleProof({
         logId: log.log_id,
         batchId: batch.batch_id,
