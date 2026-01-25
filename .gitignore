@@ -28,3 +28,4 @@ prisma/migrations/**/migration.sql.backup
 
 # Build
 *.tsbuildinfo
+PROJECT_STATUS.md
