@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: sealog_postgres
+    environment:
+      POSTGRES_DB: sealog
+      POSTGRES_USER: sealog_user
+      POSTGRES_PASSWORD: sealog_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sealog_user -d sealog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sealog_network
+
+  # Optional: Hardhat local Ethereum node for development
+  hardhat:
+    image: node:20-alpine
+    container_name: sealog_hardhat
+    working_dir: /app
+    command: npx hardhat node
+    ports:
+      - "8545:8545"
+    volumes:
+      - ./contracts:/app/contracts
+      - ./hardhat.config.ts:/app/hardhat.config.ts
+    networks:
+      - sealog_network
+
+volumes:
+  postgres_data:
+
+networks:
+  sealog_network:
+    driver: bridge

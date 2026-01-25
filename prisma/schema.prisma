@@ -1,0 +1,94 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// INVARIANT: Append-only logs - no updates or deletes allowed
+// Enforced by: triggers + permission revocation
+model Log {
+  id String @id @default(uuid()) @map("log_id")
+  
+  sourceService String @map("source_service")
+  logLevel      String @map("log_level") // ERROR, WARN, INFO, DEBUG
+  message       String
+  metadata      Json?
+  
+  // Dual timestamp model
+  timestamp   DateTime @map("timestamp")    // Event time (client-supplied, untrusted)
+  ingestedAt  DateTime @default(now()) @map("ingested_at") // Ingestion time (server-assigned, trusted)
+  
+  // Global monotonic ordering across all sources
+  sequenceNumber BigInt   @default(autoincrement()) @map("sequence_number")
+  
+  batchId String? @map("batch_id")
+  batch   Batch?  @relation(fields: [batchId], references: [id])
+  
+  proofs MerkleProof[]
+  
+  @@index([timestamp])
+  @@index([sequenceNumber])
+  @@index([batchId])
+  @@index([sourceService])
+  @@map("logs")
+}
+
+model Batch {
+  id String @id @default(uuid()) @map("batch_id")
+  
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
+  logCount  Int      @map("log_count")
+  
+  // Cryptographic commitments
+  merkleRoot String @map("merkle_root") // 0x + 64 hex chars (lowercase)
+  batchHash  String? @map("batch_hash")  // Optional: H(batch_id || metadata || merkle_root)
+  
+  // Blockchain anchor metadata
+  anchorTxHash      String?   @map("anchor_tx_hash")
+  anchorBlockNumber BigInt?   @map("anchor_block_number")
+  anchorTimestamp   DateTime? @map("anchor_timestamp")
+  
+  createdAt  DateTime  @default(now()) @map("created_at")
+  anchoredAt DateTime? @map("anchored_at")
+  
+  status String @default("pending") @map("status") // pending, building, anchoring, anchored, failed
+  
+  logs   Log[]
+  proofs MerkleProof[]
+  
+  @@unique([id, merkleRoot], name: "unique_batch_root")
+  @@index([status])
+  @@index([createdAt])
+  @@map("batches")
+}
+
+// INVARIANT: Proofs are derivable - these are cached optimizations only
+// Security-critical verification must derive proofs from log data
+model MerkleProof {
+  id String @id @default(uuid()) @map("proof_id")
+  
+  logId   String @map("log_id")
+  log     Log    @relation(fields: [logId], references: [id])
+  
+  batchId String @map("batch_id")
+  batch   Batch  @relation(fields: [batchId], references: [id])
+  
+  leafHash String @map("leaf_hash")
+  siblings Json   @map("proof_siblings") // Array of sibling hashes
+  path     Json   @map("proof_path")     // Array of 'left' or 'right'
+  treeDepth Int   @map("tree_depth")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  @@unique([logId], name: "one_proof_per_log")
+  @@index([logId])
+  @@index([batchId])
+  @@map("merkle_proofs")
+}
