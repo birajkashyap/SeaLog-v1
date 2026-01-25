@@ -4,6 +4,14 @@
 
 SeaLog is a cryptographic integrity layer over logs that provides tamper-evident logging using Merkle trees and Ethereum blockchain anchoring.
 
+## ⚠️ Merkle Tree Semantics (Cryptographically Locked)
+
+SeaLog uses a **position-preserving binary Merkle tree** with **Bitcoin-style odd-node duplication** (`H(x || x)`).
+
+This behavior is **cryptographically locked** for all anchored batches and will **never change retroactively**.
+
+Any modification to the Merkle tree semantics would invalidate all previously anchored batches.
+
 ## Features
 
 - **Append-Only Logs**: Cryptographically enforced immutability
