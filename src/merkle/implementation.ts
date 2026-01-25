@@ -7,6 +7,12 @@
  * 3. All operations are deterministic and reproducible
  * 4. Uses Keccak-256 (Ethereum-compatible)
  * 5. Output: 0x-prefixed lowercase hex (66 chars)
+ * 
+ * ODD-NODE HANDLING RULE:
+ * When a level has an odd number of nodes, the last node is DUPLICATED and HASHED.
+ * Strategy: parent = keccak256(node || node)
+ * This is standard Bitcoin/Ethereum-style Merkle tree behavior.
+ * Note: keccak256(x || x) ≠ x (the parent hash will differ from the leaf)
  */
 
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -81,7 +87,9 @@ export function buildTree(logs: LogEntry[]): MerkleTree {
         const right = currentLevel[i + 1];
         nextLevel.push(computeInternalHash(left, right));
       } else {
-        // Odd node - duplicate it (standard Merkle tree handling)
+        // ODD NODE: Duplicate and hash (Bitcoin-style)
+        // parent = keccak256(node || node)
+        // Note: The resulting hash will DIFFER from the node itself
         const node = currentLevel[i];
         nextLevel.push(computeInternalHash(node, node));
       }

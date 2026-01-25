@@ -97,10 +97,14 @@ Internal Node 0-1:
 = 0xa4bebfb96024e2358558db86756288496a6982ab6651ef85ff1bc32de215ab46
 ```
 
-Internal Node 2-2 (odd node duplicated):
+Internal Node 2-2 (odd node - duplicate and hash):
 ```
-= keccak256(leaf[2] + leaf[2])
-= 0xdf059626649268ecef594cd03620221a2ba48e714c483254e049f024d3b95816
+= keccak256(leaf[2] || leaf[2])
+= keccak256("0xdf059626649268ecef594cd03620221a2ba48e714c483254e049f024d3b95816" +
+            "0xdf059626649268ecef594cd03620221a2ba48e714c483254e049f024d3b95816")
+= 0x37ed117494685ff05b6d0125f19e777e34afa42221af7181f8f5a2c9b104bc76
+
+**NOTE**: keccak256(x || x) ≠ x. The hashed node differs from the leaf.
 ```
 
 **Level 2 (Root)**:
