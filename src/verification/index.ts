@@ -50,7 +50,7 @@ export interface VerificationResult {
     log_count: number;
   };
   merkle_proof: MerkleProof;
-  blockchain_anchor: {
+  blockchain_anchor?: {  // Optional for demo mode
     tx_hash: string;
     block_number: number;
     timestamp: string;
@@ -81,7 +81,7 @@ export interface AuditEvidence {
   log_entry?: LogEntry;
   batch: Batch;
   merkle_proof?: MerkleProof;
-  blockchain_anchor: {
+  blockchain_anchor?: {  // Optional for demo mode
     network: string;             // e.g., "sepolia", "mainnet"
     contract_address: string;
     tx_hash: string;

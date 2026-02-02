@@ -2,9 +2,25 @@
 -- This runs after Prisma's auto-generated migration
 
 -- Create trigger function to prevent log mutation
+-- EXCEPTION: Allow one-time batch_id assignment (NULL -> value)
 CREATE OR REPLACE FUNCTION prevent_log_mutation()
 RETURNS trigger AS $$
 BEGIN
+  -- Allow one-time batch_id assignment (NULL -> value)
+  IF OLD.batch_id IS NULL AND NEW.batch_id IS NOT NULL THEN
+    -- Ensure all other fields remain unchanged
+    IF OLD.log_id = NEW.log_id AND
+       OLD.source_service = NEW.source_service AND
+       OLD.log_level = NEW.log_level AND
+       OLD.message = NEW.message AND
+       OLD.metadata IS NOT DISTINCT FROM NEW.metadata AND
+       OLD.timestamp = NEW.timestamp AND
+       OLD.ingested_at = NEW.ingested_at AND
+       OLD.sequence_number = NEW.sequence_number THEN
+      RETURN NEW;  -- Allow this specific update
+    END IF;
+  END IF;
+  
   RAISE EXCEPTION 'Logs are append-only. Updates and deletes are forbidden.';
 END;
 $$ LANGUAGE plpgsql;

@@ -12,6 +12,7 @@ import type {
   AuditEvidence,
 } from './index';
 import type { LogEntry } from '../ingestion';
+import type { AnchorStatus } from '../anchoring';
 import { storageService } from '../storage/implementation';
 import { computeLeafHash, buildTree, generateProof, verifyProof } from '../merkle/implementation';
 import { createAnchorService } from '../anchoring/implementation';
@@ -60,19 +61,23 @@ export class VerificationServiceImpl implements VerificationService {
     const leafHash = computeLeafHash(log);
     const merkleProofValid = verifyProof(leafHash, proof, batch.merkle_root);
 
-    // 7. Verify root is anchored on blockchain
-    const anchorStatus = await this.anchorService.getAnchorStatus(batch.merkle_root);
-    const rootOnChain = anchorStatus.is_anchored;
-
-    if (!batch.anchor_tx_hash) {
-      throw new IntegrityError(`Batch ${log.batch_id} not yet anchored`);
+    // 7. Check if batch is anchored (demo mode: may not be anchored)
+    const isAnchored = !!batch.anchor_tx_hash;
+    let rootOnChain = false;
+    let confirmations = 0;
+    
+    if (isAnchored) {
+      // 8. Verify root is anchored on blockchain (only if anchored)
+      const anchorStatus = await this.anchorService.getAnchorStatus(batch.merkle_root);
+      rootOnChain = anchorStatus.is_anchored;
+      
+      // 9. Get blockchain confirmation count
+      confirmations = await this.getConfirmations(batch.anchor_tx_hash!);
     }
 
-    // 8. Get blockchain confirmation count
-    const confirmations = await this.getConfirmations(batch.anchor_tx_hash);
-
-    return {
-      valid: merkleProofValid && rootOnChain && contentMatches,
+    // Build response based on whether batch is anchored
+    const response: VerificationResult = {
+      valid: isAnchored ? (merkleProofValid && rootOnChain && contentMatches) : merkleProofValid && contentMatches,
       log_entry: log,
       batch: {
         batch_id: batch.batch_id,
@@ -80,19 +85,25 @@ export class VerificationServiceImpl implements VerificationService {
         log_count: batch.log_count,
       },
       merkle_proof: proof,
-      blockchain_anchor: {
-        tx_hash: batch.anchor_tx_hash,
-        block_number: batch.anchor_block_number!,
-        timestamp: batch.anchor_timestamp!.toISOString(),
-        confirmations,
-        explorer_url: this.anchorService.getExplorerUrl(batch.anchor_tx_hash),
-      },
       verification_steps: {
         merkle_proof_valid: merkleProofValid,
-        root_on_chain: rootOnChain,
+        root_on_chain: isAnchored ? rootOnChain : false,
         content_matches: contentMatches,
       },
     };
+
+    // Only include blockchain_anchor if batch is anchored
+    if (isAnchored && batch.anchor_tx_hash) {
+      response.blockchain_anchor = {
+        tx_hash: batch.anchor_tx_hash,
+        block_number: batch.anchor_block_number || 0,
+        timestamp: batch.anchor_timestamp?.toISOString() || '',
+        confirmations,
+        explorer_url: this.anchorService.getExplorerUrl(batch.anchor_tx_hash),
+      };
+    }
+
+    return response;
   }
 
   /**
@@ -104,7 +115,19 @@ export class VerificationServiceImpl implements VerificationService {
       throw new IntegrityError(`Batch ${batchId} not found`);
     }
 
-    const anchorStatus = await this.anchorService.getAnchorStatus(batch.merkle_root);
+    // Check if batch is anchored (demo mode: may not be anchored)
+    let anchorStatus: AnchorStatus;
+    if (batch.anchor_tx_hash) {
+      anchorStatus = await this.anchorService.getAnchorStatus(batch.merkle_root);
+    } else {
+      // Demo mode: batch not anchored yet
+      anchorStatus = {
+        is_anchored: false,
+        merkle_root: batch.merkle_root,
+        timestamp: undefined,
+        block_number: undefined,
+      };
+    }
 
     return {
       valid: anchorStatus.is_anchored,
@@ -122,30 +145,26 @@ export class VerificationServiceImpl implements VerificationService {
    */
   async generateAuditBundle(logId: string): Promise<AuditEvidence> {
     const verification = await this.verifyLog(logId);
+    
+    // Get full batch details
+    const log = await storageService.getLogById(logId);
+    const batch = await storageService.getBatchById(log!.batch_id!);
 
-    return {
+    const auditBundle: AuditEvidence = {
       version: '1.0',
       generated_at: new Date().toISOString(),
       verification_type: 'log',
       log_entry: verification.log_entry,
       batch: {
         batch_id: verification.batch.batch_id,
-        start_time: new Date(),
-        end_time: new Date(),
+        start_time: batch!.start_time,
+        end_time: batch!.end_time,
         log_count: verification.batch.log_count,
         merkle_root: verification.batch.merkle_root,
-        created_at: new Date(),
-        status: 'anchored',
+        created_at: batch!.created_at,
+        status: batch!.status,
       },
       merkle_proof: verification.merkle_proof,
-      blockchain_anchor: {
-        network: process.env.BLOCKCHAIN_NETWORK || 'sepolia',
-        contract_address: process.env.CONTRACT_ADDRESS || '',
-        tx_hash: verification.blockchain_anchor.tx_hash,
-        block_number: verification.blockchain_anchor.block_number,
-        timestamp: verification.blockchain_anchor.timestamp,
-        explorer_url: verification.blockchain_anchor.explorer_url,
-      },
       verification_result: {
         merkle_proof_valid: verification.verification_steps.merkle_proof_valid,
         root_anchored: verification.verification_steps.root_on_chain,
@@ -158,6 +177,20 @@ export class VerificationServiceImpl implements VerificationService {
         verification_script: this.getVerificationScript(),
       },
     };
+
+    // Only include blockchain_anchor if batch is anchored
+    if (verification.blockchain_anchor) {
+      auditBundle.blockchain_anchor = {
+        network: process.env.BLOCKCHAIN_NETWORK || 'sepolia',
+        contract_address: process.env.CONTRACT_ADDRESS || '',
+        tx_hash: verification.blockchain_anchor.tx_hash,
+        block_number: verification.blockchain_anchor.block_number,
+        timestamp: verification.blockchain_anchor.timestamp,
+        explorer_url: verification.blockchain_anchor.explorer_url,
+      };
+    }
+
+    return auditBundle;
   }
 
   /**
