@@ -103,6 +103,7 @@ This is the **CORE** of SeaLog. Understand Merkle trees deeply.
 - Position-preserving hashing (no sorting)
 - Dual timestamps (event_at + ingested_at)
 - Odd-node handling (duplicate-and-hash)
+- Cross-batch hash chaining (detect missing/deleted batches)
 - Keccak-256 hashing (Ethereum-compatible)
 
 **Goal:** Fully understand how cryptographic tamper-evidence works.
@@ -313,11 +314,13 @@ After completing this study guide, you should be able to explain:
 - ✅ What is a tamper-evident log?
 - ✅ How does a Merkle tree provide cryptographic proof?
 - ✅ Why is position-preserving hashing important?
+- ✅ How does cross-batch hash chaining detect missing batches?
 - ✅ How does the append-only database enforce immutability?
 - ✅ What is the difference between trusted and untrusted components?
 - ✅ How does blockchain anchoring provide external verification?
 - ✅ What happens if someone tries to modify a log?
 - ✅ How do you verify a log offline using only the blockchain?
+- ✅ Why explicitly enforce zero-trust for proof generation?
 - ✅ Why use Ethereum L2 instead of mainnet?
 - ✅ What are the three batching strategies?
 

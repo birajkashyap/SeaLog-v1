@@ -16,9 +16,10 @@ Any modification to the Merkle tree semantics would invalidate all previously an
 
 - **Append-Only Logs**: Cryptographically enforced immutability
 - **Merkle Tree Commitments**: Efficient batching with O(log N) proof size
+- **Cross-Batch Consistency**: Cryptographic hash chaining between batches to detect deletion
 - **Blockchain Anchoring**: Immutable timestamping via Ethereum
-- **Third-Party Verification**: Independent auditors can verify without trusting SeaLog
-- **Tamper Detection**: Any log alteration or deletion is cryptographically detectable
+- **Zero-Trust Verification**: Independent auditors can verify without trusting SeaLog
+- **Tamper Detection**: Any log alteration, deletion, or batch deletion is cryptographically detectable
 
 ## Architecture
 
@@ -81,9 +82,10 @@ SeaLog is built on 10 immutable design principles. See [docs/INVARIANTS.md](docs
 **Critical Invariants:**
 1. Logs are append-only (no mutation ever)
 2. Global sequence defines total order
-3. Dual timestamps in leaf hash (event + ingestion)
+3. Dual timestamps in leaf hash (prevent backdating)
 4. Merkle internal hash preserves position (no sorting)
-5. Proofs are derivable, never trusted from DB
+5. Proofs are derivable, never trusted from DB cache
+6. Batches are cryptographically chained to prevent gap deletions
 
 ## API Endpoints
 
@@ -136,6 +138,7 @@ GET /api/v1/audit/:log_id
 ### Other Endpoints
 
 - `GET /api/v1/verify/batch/:batch_id` - Verify entire batch
+- `GET /api/v1/verify/chain` - Verify cross-batch cryptographic chain and detect gaps
 - `POST /api/v1/admin/batch/trigger` - Manually trigger batch creation
 - `GET /api/v1/batch/:batch_id` - Get batch status
 - `GET /health` - Health check
@@ -160,6 +163,13 @@ npm test -- verification.concrete.test.ts
   - Timestamp manipulation detection
   - Position-preserving hashing
   - Independent offline verification
+
+- ✅ **Phase 2: Research Enhancements** - 20/20 tests passing
+  - Genesis chain hash stability
+  - Cross-batch hash chaining verification
+  - Batch deletion/gap detection
+  - Batch tampering & broken link detection
+  - Zero-trust proof source validation
 
 - ⏸️ **Phase 2: Blockchain Anchoring** - Pending deployment
 - ⏸️ **Phase 3: End-to-End Integration** - Pending deployment
@@ -208,6 +218,8 @@ SeaLog enforces tamper-evidence through:
 - **Permission revocation** blocking UPDATE/DELETE/TRUNCATE
 - **Dual timestamp model** preventing backdating attacks
 - **Position-preserving Merkle hashing** for sound proofs
+- **Zero-trust verification** where cached proofs are explicitly ignored
+- **Cross-batch hash chaining** preventing entire batch deletion
 - **Blockchain anchoring** providing external immutable timestamps
 
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for security model details.
@@ -229,9 +241,10 @@ Comprehensive documentation is available in the `docs/` directory:
 
 **Completed:**
 - ✅ All core technical implementation (100%)
-- ✅ Comprehensive documentation (95%)
+- ✅ Research enhancements (Hash chaining, Zero-trust validation)
+- ✅ Comprehensive documentation (100%)
 - ✅ Cryptographic correctness proven
-- ✅ Unit tests passing (8/8 core tests)
+- ✅ Unit tests passing (28/28 core tests)
 - ✅ Smart contract ready for deployment
 
 **Pending:**

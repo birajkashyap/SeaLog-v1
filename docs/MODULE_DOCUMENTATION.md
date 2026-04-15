@@ -1,6 +1,6 @@
 # SeaLog - Module Implementation Summary
 
-**Project Status: 70% Complete** | Validation & Pre-Deployment Phase
+**Project Status: ~75-80% Complete** | Validation & Pre-Deployment Phase
 
 ---
 
@@ -10,9 +10,9 @@
 |--------|--------------|--------------|----------------|--------|
 | **Log Ingestion Service** | REST API with validation | Express.js, Zod schema validation, `/api/v1/logs/ingest` endpoint | 100% | ✅ Complete |
 | **Storage & Retrieval** | PostgreSQL database | Prisma ORM, append-only enforcement via DB triggers, immutable schema | 100% | ✅ Complete |
-| **Merkle Tree Generator** | Cryptographic proof generation | Position-preserving binary tree, Keccak-256 hashing, v1.0.0-crypto-locked | 100% | ✅ Complete |
+| **Merkle Tree Generator** | Cryptographic proof generation | Position-preserving binary tree, cross-batch hash chaining, Keccak-256 | 100% | ✅ Complete |
 | **Batch Processor** | Log batching engine | Time/size/hybrid strategies, automatic batch creation, proof caching | 100% | ✅ Complete |
-| **Verification Service** | Proof verification API | 3 RESTful endpoints: `/verify/log/:id`, `/verify/batch/:id`, `/audit/:id` | 100% | ✅ Complete |
+| **Verification Service** | Proof verification API | 4 RESTful endpoints: `/verify/log/:id`, `/verify/batch/:id`, `/verify/chain`, `/audit/:id` | 100% | ✅ Complete |
 | **Blockchain Interface** | Smart contract integration | Ethers.js, SeaLogAnchor.sol contract, transaction signing ready | 85% | ⏸️ Code complete, deployment pending |
 | **Audit UI** | Web interface | React.js frontend for auditors | 0% | 📋 Planned |
 | **Key Vault** | Secure key management | HashiCorp Vault / AWS KMS integration | 0% | 📋 Planned |
@@ -27,9 +27,9 @@
 **Backend Core (100% Complete)**
 - Log Ingestion: REST API with Zod validation, server-side timestamping
 - Storage Layer: PostgreSQL + Prisma ORM, append-only enforcement
-- Merkle Tree: Position-preserving binary tree with Keccak-256
+- Merkle Tree: Position-preserving binary tree + cross-batch hash chaining
 - Batch Processor: Configurable batching (time/size/hybrid triggers)
-- Verification Service: 3 endpoints for log/batch verification and audit bundles
+- Verification Service: Zero-trust architecture + 4 verification endpoints
 
 **Blockchain Integration (85% Complete)**
 - Smart contract written and tested (SeaLogAnchor.sol)
@@ -54,7 +54,7 @@
 
 | Test Phase | Status | Details |
 |-----------|--------|---------|
-| **Phase 1: Core Crypto** | 8/8 PASSED ✅ | Determinism, hash integrity, tamper detection |
+| **Phase 1: Core Crypto & Research** | 28/28 PASSED ✅ | Determinism, hash integrity, chaining, detection |
 | **Phase 2: Blockchain** | 0/3 PENDING ⏸️ | Requires deployed contract on Sepolia |
 | **Phase 3: Integration** | 1/1 PASSED ✅ | End-to-end concrete verification test |
 
@@ -71,10 +71,10 @@
 |-------|-----------|--------------|--------|
 | **Research & Planning** | 100% | Architecture design, schema design, tech stack selection | ✅ Complete |
 | **Core Infrastructure** | 100% | Database setup, TypeScript config, Docker Compose | ✅ Complete |
-| **Cryptographic Implementation** | 100% | Merkle tree module, proof generation/verification | ✅ Complete |
-| **Backend API** | 100% | 6 REST endpoints, batching logic, verification service | ✅ Complete |
+| **Cryptographic Implementation** | 100% | Merkle tree module, cross-batch chaining | ✅ Complete |
+| **Backend API** | 100% | 7 REST endpoints, zero-trust verification service | ✅ Complete |
 | **Blockchain Integration** | 85% | Smart contract code, deployment scripts | ⏸️ Deployment pending |
-| **Testing & Documentation** | 95% | 6 technical docs, 9 passing tests | ✅ Near complete |
+| **Testing & Documentation** | 95% | 6 technical docs, 28 passing tests | ✅ Near complete |
 | **Production Deployment** | 0% | Testnet deployment, monitoring setup | 📋 Planned |
 
 ---
@@ -108,6 +108,7 @@ Batch → Blockchain Interface → Ethereum L2 (Sepolia) → ⏸️ Pending depl
 **Cryptographic Security:**
 - Keccak-256 hashing (Ethereum-compatible)
 - Position-preserving Merkle trees (no sorting)
+- Cross-batch hash chaining (prevents batch deletion)
 - Dual timestamping (event + ingestion)
 - Mathematically proven tamper-evidence
 

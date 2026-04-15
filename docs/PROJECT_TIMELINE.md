@@ -64,9 +64,10 @@ gantt
 - Merkle Tree implementation (position-preserving)
 - Keccak-256 hashing integration
 - Proof generation/verification algorithms
+- Cross-batch hash chaining & zero-trust verification
 
 **API Development (Dec 28 - Jan 15):**
-- 6 REST endpoints implemented
+- 7 REST endpoints implemented
 - Zod validation schemas
 - Express.js server setup
 
@@ -86,8 +87,8 @@ gantt
 **Duration:** 31 days (concurrent with backend) | **Status:** ✅ 90% Complete
 
 **Unit Testing (Dec 26 - Jan 10):**
-- 8/8 core crypto tests passed ✅
-- Determinism and tamper detection tests
+- 28/28 core crypto & research tests passed ✅
+- Determinism, hash chaining, and tamper detection tests
 
 **Integration Testing (Jan 12-20):**
 - 1/1 end-to-end test passed ✅
@@ -137,10 +138,10 @@ gantt
 ## Project Metrics
 
 **Total Duration:** 14 weeks (Dec 8 - Mar 15)  
-**Completed To Date:** 70%  
+**Completed To Date:** ~75-80%  
 **Expected Final Completion:** March 15, 2026  
 **Lines of Code:** ~5,000+  
-**Test Coverage:** 9/12 tests passed (75%)  
+**Test Coverage:** 28/31 tests passed (90%)  
 **Documentation:** 6 comprehensive guides
 
 ---

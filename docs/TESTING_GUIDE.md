@@ -87,6 +87,36 @@ npm test -- --testNamePattern="Timestamp"
 
 ---
 
+## Phase 1.5: Research Enhancements (LOCAL)
+
+### Test 4: Cross-Batch Cryptographic Hash Chaining ✅ Implemented
+
+**Objective**: Prove batch sequence cannot be altered
+
+**Test Location**: `src/__tests__/chain.test.ts`
+
+**What it validates**:
+- Genesis hash is deterministic
+- Hash chaining detects gaps (deleted batches)
+- Hash chaining detects tampered chain links
+
+**Expected outcome**:
+- ✅ Missing batches are cryptographically detected
+- ✅ Broken chain links correctly invalidate the chain
+
+### Test 5: Zero-Trust Verification ✅ Implemented
+
+**Objective**: Prove proofs are not blindly trusted from DB
+
+**Test Location**: `src/__tests__/chain.test.ts`
+
+**What it validates**:
+- Verification re-derives proof from raw logs
+- Tampered cached proofs don't affect verification outcome
+
+**Expected outcome**:
+- ✅ Zero-trust proof source validation succeeds
+
 ## Phase 2: Blockchain Anchoring Tests (SEPOLIA)
 
 ### Test 4: Anchor Correctness ⏸️ Requires Deployment
@@ -257,8 +287,10 @@ The system passes verification if:
 1. ✅ Deterministic Merkle roots (Test 1)
 2. ✅ Append-only enforcement works (Test 2)
 3. ✅ Timestamp manipulation is detectable (Test 3)
-4. ⏸️ Blockchain anchoring is correct (Test 4)
-5. ⏸️ Blockchain is immutable (Test 5)
-6. ⏸️ **Independent verification works** (Test 6)
+4. ✅ Cross-batch modifications are detectable (Test 4)
+5. ✅ Zero-trust verification correctly ignores tampered caches (Test 5)
+6. ⏸️ Blockchain anchoring is correct (Test 6)
+7. ⏸️ Blockchain is immutable (Test 7)
+8. ⏸️ **Independent verification works** (Test 8)
 
-**Most Critical**: Test 6 proves the entire system's security model.
+**Most Critical**: Tests 4, 5, and 8 prove the entire system's security model.

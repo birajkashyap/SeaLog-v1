@@ -187,6 +187,7 @@ Verification Result: ✅ VALID
 - ✓ Log entry (all fields including both timestamps)
 - ✓ Merkle proof (siblings + path directions)
 - ✓ Batch Merkle root
+- ✓ Batch chain hash & Previous batch chain hash
 - ✓ Blockchain transaction hash
 
 ### Data NOT Trusted
@@ -213,13 +214,22 @@ Expected Root: 0x56ad7e3c8044daaf8861e2d22e637c60e459c24600559ea5672035e4ad61436
 Matches: ✅ YES
 ```
 
-**Step 3: Query Blockchain Directly**
+**Step 3: Verify Cross-Batch Linkage**
+```
+Input: Previous batch chain hash, current Merkle root from audit bundle
+Process: Compute keccak256(prev_batch_chain_hash || current_merkle_root)
+Computed Hash: Matches the current batch_chain_hash
+Matches Stored: ✅ YES
+```
+
+**Step 4: Query Blockchain Directly**
 ```
 Method: Direct RPC call to Ethereum node (no SeaLog API)
 Call: contract.verifyAnchor("0x56ad7e3c8044daaf8861e2d22e637c60e459c24600559ea5672035e4ad614366")
 Expected Response: { exists: true, timestamp: <block_timestamp>, blockNumber: <block_num> }
 Status: ⏸️ Requires deployed contract on Sepolia
 ```
+
 
 ### Verification Complete Without SeaLog: ✅
 
@@ -240,6 +250,8 @@ Status: ⏸️ Requires deployed contract on Sepolia
 
 ✅ **Position Preservation**: Internal hashes do NOT sort (left/right semantics preserved)
 
+✅ **Batch Sequence Integrity**: Cross-batch chaining detects any deleted or reordered batches
+
 ✅ **Independent Verification**: Offline auditors can verify without trusting SeaLog
 
 ✅ **Immutable Anchoring**: Once anchored to Ethereum, the root cannot be changed
@@ -252,6 +264,7 @@ Status: ⏸️ Requires deployed contract on Sepolia
 |----------|--------|----------|
 | Append-only logs | ✅ Enforced | Triggers block UPDATE/DELETE |
 | Tamper detection | ✅ Proven | Modified logs fail Merkle verification |
+| Missing batch detection | ✅ Proven | Cross-batch chain hash verification fails |
 | Timestamp manipulation | ✅ Detectable | Dual timestamps in leaf hash |
 | Deterministic tree | ✅ Validated | Sequence ordering enforced |
 | Zero-trust verification | ✅ Implemented | Proofs derivable from audit bundle |

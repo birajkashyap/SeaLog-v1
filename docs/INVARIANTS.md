@@ -3,7 +3,7 @@
 > [!CAUTION]
 > **DO NOT VIOLATE THESE INVARIANTS**
 > 
-> This document defines the immutable design principles of SeaLog. These are not negotiable. Any implementation, optimization, or feature must preserve these invariants. Violation of any of these means the system is broken.
+> This document defines the 11 immutable design principles of SeaLog. These are not negotiable. Any implementation, optimization, or feature must preserve these invariants. Violation of any of these means the system is broken.
 
 ---
 
@@ -198,7 +198,26 @@ REVOKE UPDATE, DELETE, TRUNCATE ON logs FROM app_user;
 5. If root is NOT on-chain → log is invalid or batch is unanchored
 6. If root IS on-chain → log is cryptographically verified
 
-**Why It Matters**: The blockchain is the immutable, external timestamp authority. The database is considered potentially compromised.
+---
+
+### 11. Cross-Batch Cryptographic Hash Chaining
+
+**Principle**: Batches are cryptographically linked sequentially to prevent the deletion or reordering of entire batches.
+
+**Hash Formula**:
+```typescript
+batch_chain_hash = Keccak256(
+  prev_batch_chain_hash ||
+  current_merkle_root
+)
+```
+
+**What This Means**:
+- The first batch uses a hardcoded `GENESIS_CHAIN_HASH = keccak256("SeaLog::Genesis::v1")`
+- Each batch incorporates the `batch_chain_hash` of its predecessor
+- `batch_number` must increment monotonically without gaps
+
+**Why It Matters**: While Merkle roots protect individual batches, hash chaining protects the global sequence of batches. If an attacker deletes an entire batch, the `batch_number` sequence will have a gap, and recomputing the chain link will fail, making the batch deletion cryptographically detectable by offline auditors.
 
 ---
 
@@ -214,6 +233,8 @@ These invariants must be tested:
 - ✅ Modified log content → leaf hash changes, proof fails
 - ✅ Blockchain query returns correct root → verification succeeds
 - ✅ Blockchain query returns different root → verification fails
+- ✅ Missing batch in database → gap detected and chain verification fails
+- ✅ Tampered batch chain hash → cross-batch chain verification fails
 
 ---
 
@@ -224,7 +245,8 @@ This system is **correct** if and only if:
 1. An independent auditor can verify any log entry without trusting SeaLog
 2. Any alteration to historical logs is cryptographically detectable
 3. Logs cannot be deleted without detection
-4. Timestamps cannot be manipulated without detection
-5. The blockchain anchor provides external, immutable proof of existence
+4. Batches cannot be deleted or reordered without detection
+5. Timestamps cannot be manipulated without detection
+6. The blockchain anchor provides external, immutable proof of existence
 
 **These invariants make that possible. Do not break them.**
