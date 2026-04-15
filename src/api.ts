@@ -12,8 +12,7 @@ import express from 'express';
 import { logIngestionService } from './ingestion/implementation';
 import { batchProcessor } from './batching/implementation';
 import { verificationService } from './verification/implementation';
-import { createAnchorService } from './anchoring/implementation';
-import { ValidationError, IntegrityError, BlockchainError } from './types';
+import { ValidationError, IntegrityError } from './types';
 
 const app = express();
 app.use(express.json());
@@ -21,7 +20,7 @@ app.use(express.json());
 /**
  * Health check endpoint
  */
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', service: 'SeaLog', version: '0.1.0' });
 });
 
@@ -77,6 +76,37 @@ app.get('/api/v1/verify/batch/:batchId', async (req, res) => {
 });
 
 /**
+ * Verify the cross-batch cryptographic chain
+ * GET /api/v1/verify/chain
+ *
+ * Optional query params:
+ *   ?from=<batch_number>  - start of range (inclusive, default: first batch)
+ *   ?to=<batch_number>    - end of range (inclusive, default: last batch)
+ *
+ * Returns a ChainVerificationResult indicating:
+ *   - Whether all chain links are valid
+ *   - Any missing batch_numbers (deleted batches)
+ *   - The batch_number where the chain breaks (if any)
+ */
+app.get('/api/v1/verify/chain', async (req, res): Promise<void> => {
+  try {
+    const from = req.query.from ? parseInt(req.query.from as string, 10) : undefined;
+    const to = req.query.to ? parseInt(req.query.to as string, 10) : undefined;
+
+    if ((from !== undefined && isNaN(from)) || (to !== undefined && isNaN(to))) {
+      res.status(400).json({ error: 'from and to must be valid integers' });
+      return;
+    }
+
+    const result = await verificationService.verifyBatchChain(from, to);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+/**
  * Generate audit evidence bundle
  * GET /api/v1/audit/:logId
  */
@@ -93,7 +123,7 @@ app.get('/api/v1/audit/:logId', async (req, res) => {
  * Manually trigger batch creation (admin endpoint)
  * POST /api/v1/admin/batch/trigger
  */
-app.post('/api/v1/admin/batch/trigger', async (req, res) => {
+app.post('/api/v1/admin/batch/trigger', async (_req, res) => {
   try {
     const batch = await batchProcessor.triggerBatch();
     if (!batch) {
@@ -122,7 +152,7 @@ app.get('/api/v1/batch/:batchId', async (req, res) => {
 /**
  * Error handling middleware
  */
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });

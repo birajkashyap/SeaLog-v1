@@ -1,6 +1,6 @@
 /**
  * Storage Service Implementation
- * 
+ *
  * Responsibilities:
  * - Manage Prisma client connection
  * - Enforce append-only constraints
@@ -11,7 +11,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { LogEntry } from '../ingestion';
 import type { Batch } from '../batching';
-import type { StorageService, DatabaseConfig } from './index';
+import type { StorageService } from './index';
 
 export class PrismaStorageService implements StorageService {
   private prisma: PrismaClient;
@@ -82,8 +82,16 @@ export class PrismaStorageService implements StorageService {
 
   /**
    * Insert batch metadata
+   * Requires chain fields — batch_hash, prev_batch_chain_hash, batch_chain_hash.
+   *
+   * Note: The 'as any' cast on the data object is required because Prisma's generated
+   * client types do not yet include the new fields (prevBatchChainHash, batchChainHash,
+   * batchNumber). These types will update automatically after running `prisma generate`
+   * against a live database with the migration applied.
    */
-  async insertBatch(batch: Omit<Batch, 'batch_id'>): Promise<Batch> {
+  async insertBatch(
+    batch: Omit<Batch, 'batch_id' | 'batch_number'>,
+  ): Promise<Batch> {
     const created = await this.prisma.batch.create({
       data: {
         startTime: batch.start_time,
@@ -91,8 +99,10 @@ export class PrismaStorageService implements StorageService {
         logCount: batch.log_count,
         merkleRoot: batch.merkle_root,
         batchHash: batch.batch_hash,
+        prevBatchChainHash: batch.prev_batch_chain_hash,
+        batchChainHash: batch.batch_chain_hash,
         status: batch.status,
-      },
+      } as any, // cast until `prisma generate` updates the client post-migration
     });
 
     return this.mapToBatch(created);
@@ -120,6 +130,18 @@ export class PrismaStorageService implements StorageService {
   }
 
   /**
+   * Update the final batch_hash after the batch_id is known.
+   * Called immediately after insertBatch() to set the cryptographically complete
+   * batch commitment: keccak256(batch_id || start || end || log_count || merkle_root || chain_hash).
+   */
+  async updateBatchHash(batchId: string, batchHash: string): Promise<void> {
+    await this.prisma.batch.update({
+      where: { id: batchId },
+      data: { batchHash },
+    });
+  }
+
+  /**
    * Get batch by ID
    */
   async getBatchById(batchId: string): Promise<Batch | null> {
@@ -128,6 +150,53 @@ export class PrismaStorageService implements StorageService {
     });
 
     return batch ? this.mapToBatch(batch) : null;
+  }
+
+  /**
+   * Get the most recently created batch (highest batch_number).
+   * Used by createBatch to fetch prev_batch_chain_hash before inserting a new batch.
+   */
+  async getLatestBatch(): Promise<Batch | null> {
+    const batch = await this.prisma.batch.findFirst({
+      orderBy: { batchNumber: 'desc' } as any, // cast until prisma generate post-migration
+    });
+    return batch ? this.mapToBatch(batch) : null;
+  }
+
+  /**
+   * Get a contiguous range of batches ordered by batch_number.
+   * Used by verifyBatchChain() to walk the chain and detect gaps.
+   *
+   * @param fromBatchNumber - inclusive lower bound
+   * @param toBatchNumber   - inclusive upper bound
+   */
+  async getBatchChain(fromBatchNumber: number, toBatchNumber: number): Promise<Batch[]> {
+    const batches = await this.prisma.batch.findMany({
+      where: {
+        batchNumber: {
+          gte: fromBatchNumber,
+          lte: toBatchNumber,
+        },
+      } as any, // cast until prisma generate post-migration
+      orderBy: { batchNumber: 'asc' } as any,
+    });
+    return batches.map(this.mapToBatch);
+  }
+
+  /**
+   * Get the first and last batch_number in the database.
+   * Returns null if no batches exist.
+   */
+  async getBatchNumberRange(): Promise<{ min: number; max: number } | null> {
+    const [first, last] = await Promise.all([
+      this.prisma.batch.findFirst({ orderBy: { batchNumber: 'asc' } as any }),
+      this.prisma.batch.findFirst({ orderBy: { batchNumber: 'desc' } as any }),
+    ]);
+    if (!first || !last) return null;
+    return {
+      min: (first as any).batchNumber,
+      max: (last as any).batchNumber,
+    };
   }
 
   /**
@@ -200,16 +269,19 @@ export class PrismaStorageService implements StorageService {
   }
 
   /**
-   * Map Prisma Batch to Batch
+   * Map Prisma Batch to Batch interface
    */
   private mapToBatch(batch: any): Batch {
     return {
       batch_id: batch.id,
+      batch_number: batch.batchNumber,
       start_time: batch.startTime,
       end_time: batch.endTime,
       log_count: batch.logCount,
       merkle_root: batch.merkleRoot,
       batch_hash: batch.batchHash,
+      prev_batch_chain_hash: batch.prevBatchChainHash ?? null,
+      batch_chain_hash: batch.batchChainHash,
       anchor_tx_hash: batch.anchorTxHash,
       anchor_block_number: batch.anchorBlockNumber ? Number(batch.anchorBlockNumber) : undefined,
       anchor_timestamp: batch.anchorTimestamp,

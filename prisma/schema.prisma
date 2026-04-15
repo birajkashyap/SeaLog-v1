@@ -41,31 +41,42 @@ model Log {
 
 model Batch {
   id String @id @default(uuid()) @map("batch_id")
-  
+
+  // Monotonic batch sequence for gap detection
+  // INVARIANT: batch_number must be contiguous; gaps indicate deleted batches
+  batchNumber Int @default(autoincrement()) @map("batch_number")
+
   startTime DateTime @map("start_time")
   endTime   DateTime @map("end_time")
   logCount  Int      @map("log_count")
-  
+
   // Cryptographic commitments
-  merkleRoot String @map("merkle_root") // 0x + 64 hex chars (lowercase)
-  batchHash  String? @map("batch_hash")  // Optional: H(batch_id || metadata || merkle_root)
-  
+  // merkle_root: root of the Merkle tree for this batch's logs
+  // batch_hash: H(batch_id || start || end || log_count || merkle_root || batch_chain_hash)
+  // batch_chain_hash: H(prev_batch_chain_hash || merkle_root) — links batches cryptographically
+  merkleRoot      String  @map("merkle_root")           // 0x + 64 hex chars (lowercase)
+  batchHash       String  @map("batch_hash")            // Full batch commitment
+  prevBatchChainHash String? @map("prev_batch_chain_hash") // NULL for genesis batch; "legacy" for pre-migration batches
+  batchChainHash  String  @map("batch_chain_hash")     // Chain link hash
+
   // Blockchain anchor metadata
   anchorTxHash      String?   @map("anchor_tx_hash")
   anchorBlockNumber BigInt?   @map("anchor_block_number")
   anchorTimestamp   DateTime? @map("anchor_timestamp")
-  
+
   createdAt  DateTime  @default(now()) @map("created_at")
   anchoredAt DateTime? @map("anchored_at")
-  
+
   status String @default("pending") @map("status") // pending, building, anchoring, anchored, failed
-  
+
   logs   Log[]
   proofs MerkleProof[]
-  
+
   @@unique([id, merkleRoot], name: "unique_batch_root")
+  @@unique([batchNumber], name: "unique_batch_number")
   @@index([status])
   @@index([createdAt])
+  @@index([batchNumber])
   @@map("batches")
 }
 

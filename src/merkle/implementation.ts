@@ -1,18 +1,22 @@
 /**
  * Merkle Tree Implementation
- * 
+ *
  * CRITICAL INVARIANTS ENFORCED:
  * 1. Internal hash MUST preserve left/right position (NO SORTING)
  * 2. Leaf hash includes both timestamps (event + ingestion)
  * 3. All operations are deterministic and reproducible
  * 4. Uses Keccak-256 (Ethereum-compatible)
  * 5. Output: 0x-prefixed lowercase hex (66 chars)
- * 
+ *
  * ODD-NODE HANDLING RULE:
  * When a level has an odd number of nodes, the last node is DUPLICATED and HASHED.
  * Strategy: parent = keccak256(node || node)
  * This is standard Bitcoin/Ethereum-style Merkle tree behavior.
  * Note: keccak256(x || x) ≠ x (the parent hash will differ from the leaf)
+ *
+ * CROSS-BATCH CHAINING:
+ * batch_chain_hash_N = keccak256(prev_chain_hash || merkle_root_N)
+ * Genesis: prev_chain_hash = keccak256("SeaLog::Genesis::v1") (hardcoded constant)
  */
 
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -200,14 +204,17 @@ export function verifyProof(
 }
 
 /**
- * Compute batch hash (optional - for v2)
+ * Compute batch hash (full batch commitment)
+ * Binds batch metadata + merkle root + chain hash together.
+ * Format: keccak256(batchId || startTime || endTime || logCount || merkleRoot || batchChainHash)
  */
 export function computeBatchHash(
   batchId: string,
   startTime: Date,
   endTime: Date,
   logCount: number,
-  merkleRoot: Hash
+  merkleRoot: Hash,
+  batchChainHash: Hash,
 ): Hash {
   const canonicalData = [
     batchId,
@@ -215,7 +222,35 @@ export function computeBatchHash(
     endTime.toISOString(),
     logCount.toString(),
     merkleRoot,
+    batchChainHash,
   ].join('||');
-  
+
   return keccak256(canonicalData);
+}
+
+/**
+ * GENESIS_CHAIN_HASH — the cryptographic anchor for the first batch's chain.
+ *
+ * Computed as keccak256("SeaLog::Genesis::v1").
+ * This value is deterministic and must NEVER change; it anchors the entire
+ * cross-batch chain. Any batch whose prev_batch_chain_hash === GENESIS_CHAIN_HASH
+ * is the first batch in the chain.
+ *
+ * This constant is exported so offline auditors and tests can verify it independently.
+ */
+export const GENESIS_CHAIN_HASH: Hash = keccak256('SeaLog::Genesis::v1');
+
+/**
+ * Compute the cross-batch chain hash.
+ *
+ * INVARIANT: This is a pure function — same inputs always produce the same output.
+ * INVARIANT: Internal hash semantics (no sorting, position-preserving) do NOT apply here.
+ *            This is a simple sequential chain link, not a Merkle internal node.
+ *
+ * @param prevChainHash - chain hash of the previous batch (or GENESIS_CHAIN_HASH for batch 1)
+ * @param merkleRoot    - merkle root of the current batch
+ * @returns             - the chain hash for the current batch
+ */
+export function computeChainHash(prevChainHash: Hash, merkleRoot: Hash): Hash {
+  return keccak256(prevChainHash + merkleRoot);
 }
