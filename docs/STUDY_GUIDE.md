@@ -51,8 +51,8 @@ Learn **HOW** the system is designed before diving into code.
    - Gantt chart visualization
 
 5. **Architecture Diagrams** (20 mins)
-   - [Sequence Diagram](file:///Users/kashy/Desktop/SeaLog/docs/architecture/sequence_diagram.png) - Data flow
-   - [Gantt Chart](file:///Users/kashy/Desktop/SeaLog/docs/architecture/gantt_chart.png) - Timeline
+   - [Sequence Diagram](./architecture/sequence_diagram.md) - Data flow
+   - [Gantt Chart](./architecture/gantt_chart.md) - Timeline
 
 **Goal:** Understand the high-level architecture and component interactions.
 
