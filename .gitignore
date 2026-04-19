@@ -29,3 +29,7 @@ prisma/migrations/**/migration.sql.backup
 # Build
 *.tsbuildinfo
 PROJECT_STATUS.md
+
+# Hardhat
+contracts/artifacts/
+contracts/cache/
