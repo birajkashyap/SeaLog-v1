@@ -15,6 +15,25 @@ import { verificationService } from './verification/implementation';
 import { ValidationError, IntegrityError } from './types';
 
 const app = express();
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    process.env.CORS_ORIGIN,
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+  ].filter(Boolean);
+  const origin = req.headers.origin;
+  res.header(
+    'Access-Control-Allow-Origin',
+    origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
+  );
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 app.use(express.json());
 
 /**
