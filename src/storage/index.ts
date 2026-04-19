@@ -17,6 +17,12 @@ export interface StorageService {
    * INVARIANT: No UPDATE or DELETE allowed
    */
   insertLog(log: Omit<LogEntry, 'log_id' | 'sequence_number'>): Promise<LogEntry>;
+
+  /**
+   * Insert multiple logs atomically in request order.
+   * INVARIANT: The database sequence_number remains the source of total order.
+   */
+  insertLogs(logs: Omit<LogEntry, 'log_id' | 'sequence_number'>[]): Promise<LogEntry[]>;
   
   /**
    * Get log by ID
@@ -38,7 +44,7 @@ export interface StorageService {
   /**
    * Insert batch metadata
    */
-  insertBatch(batch: Omit<Batch, 'batch_id'>): Promise<Batch>;
+  insertBatch(batch: Omit<Batch, 'batch_id' | 'batch_number'>): Promise<Batch>;
   
   /**
    * Update batch with anchor info
@@ -55,6 +61,11 @@ export interface StorageService {
    * Get batch by ID
    */
   getBatchById(batchId: string): Promise<Batch | null>;
+
+  /**
+   * Development-only demo helper. Must never be enabled in production.
+   */
+  simulateTamper(logId: string): Promise<void>;
 }
 
 export interface DatabaseConfig {

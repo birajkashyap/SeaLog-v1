@@ -48,6 +48,11 @@ export interface LogIngestionService {
    * INVARIANT: Must use global sequence_number
    */
   ingest(request: IngestRequest): Promise<IngestResponse>;
+
+  /**
+   * Ingest multiple log entries atomically.
+   */
+  ingestBatch(requests: IngestRequest[]): Promise<IngestResponse[]>;
   
   /**
    * Validate log schema

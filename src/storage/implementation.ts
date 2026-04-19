@@ -45,6 +45,31 @@ export class PrismaStorageService implements StorageService {
   }
 
   /**
+   * Insert multiple log entries atomically.
+   * Prisma runs the create operations in array order inside one transaction;
+   * PostgreSQL remains the source of truth for sequence_number assignment.
+   */
+  async insertLogs(
+    logs: Omit<LogEntry, 'log_id' | 'sequence_number'>[]
+  ): Promise<LogEntry[]> {
+    const created = await this.prisma.$transaction(
+      logs.map((log) =>
+        this.prisma.log.create({
+          data: {
+            sourceService: log.source_service,
+            logLevel: log.log_level,
+            message: log.message,
+            metadata: log.metadata || {},
+            timestamp: log.timestamp,
+          },
+        }),
+      ),
+    );
+
+    return created.map(this.mapToLogEntry);
+  }
+
+  /**
    * Get log by ID
    */
   async getLogById(logId: string): Promise<LogEntry | null> {
@@ -98,6 +123,8 @@ export class PrismaStorageService implements StorageService {
         endTime: batch.end_time,
         logCount: batch.log_count,
         merkleRoot: batch.merkle_root,
+        processingTimeMs: batch.processing_time_ms,
+        treeDepth: batch.tree_depth,
         batchHash: batch.batch_hash,
         prevBatchChainHash: batch.prev_batch_chain_hash,
         batchChainHash: batch.batch_chain_hash,
@@ -150,6 +177,50 @@ export class PrismaStorageService implements StorageService {
     });
 
     return batch ? this.mapToBatch(batch) : null;
+  }
+
+  /**
+   * Development-only tamper helper.
+   *
+   * This intentionally bypasses the append-only trigger for demos so verification
+   * can prove that mutation is detected. The API layer blocks production use.
+   */
+  async simulateTamper(logId: string): Promise<void> {
+    const tamperDatabaseUrl = process.env.TAMPER_DATABASE_URL || process.env.ADMIN_DATABASE_URL;
+    const prisma = tamperDatabaseUrl
+      ? new PrismaClient({
+          datasources: {
+            db: {
+              url: tamperDatabaseUrl,
+            },
+          },
+        })
+      : this.prisma;
+
+    const log = await prisma.log.findUnique({ where: { id: logId } });
+    if (!log) {
+      if (prisma !== this.prisma) {
+        await prisma.$disconnect();
+      }
+      throw new Error(`Log ${logId} not found`);
+    }
+
+    let triggersDisabled = false;
+    try {
+      await prisma.$executeRawUnsafe('ALTER TABLE logs DISABLE TRIGGER USER');
+      triggersDisabled = true;
+      await prisma.log.update({
+        where: { id: logId },
+        data: { message: `${log.message} TAMPERED` },
+      });
+    } finally {
+      if (triggersDisabled) {
+        await prisma.$executeRawUnsafe('ALTER TABLE logs ENABLE TRIGGER USER');
+      }
+      if (prisma !== this.prisma) {
+        await prisma.$disconnect();
+      }
+    }
   }
 
   /**
@@ -279,6 +350,8 @@ export class PrismaStorageService implements StorageService {
       end_time: batch.endTime,
       log_count: batch.logCount,
       merkle_root: batch.merkleRoot,
+      processing_time_ms: batch.processingTimeMs ?? 0,
+      tree_depth: batch.treeDepth ?? 0,
       batch_hash: batch.batchHash,
       prev_batch_chain_hash: batch.prevBatchChainHash ?? null,
       batch_chain_hash: batch.batchChainHash,

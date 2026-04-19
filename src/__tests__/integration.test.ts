@@ -13,11 +13,8 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { storageService } from '../storage/implementation';
 import { logIngestionService } from '../ingestion/implementation';
 import { batchProcessor } from '../batching/implementation';
-import { verificationService } from '../verification/implementation';
 
 describe('End-to-End Integration Tests', () => {
-  let testLogIds: string[] = [];
-
   beforeAll(async () => {
     // Clean setup - ensure we're starting fresh
     console.log('Setting up integration tests...');
@@ -48,8 +45,6 @@ describe('End-to-End Integration Tests', () => {
       log_level: 'WARN',
       message: 'Test log 3',
     });
-
-    testLogIds = [log1.log_id, log2.log_id, log3.log_id];
 
     // 2. Verify logs were ingested
     expect(log1.sequence_number).toBeGreaterThan(0);

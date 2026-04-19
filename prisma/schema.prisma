@@ -49,6 +49,8 @@ model Batch {
   startTime DateTime @map("start_time")
   endTime   DateTime @map("end_time")
   logCount  Int      @map("log_count")
+  processingTimeMs Int @default(0) @map("processing_time_ms")
+  treeDepth Int @default(0) @map("tree_depth")
 
   // Cryptographic commitments
   // merkle_root: root of the Merkle tree for this batch's logs

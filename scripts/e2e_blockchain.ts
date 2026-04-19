@@ -82,6 +82,8 @@ async function main() {
       end_time: logs[1].timestamp,
       log_count: logs.length,
       merkle_root: merkleRoot,
+      processing_time_ms: 0,
+      tree_depth: tree.depth,
       batch_hash: 'dummy_hash',
       prev_batch_chain_hash: null,
       batch_chain_hash: 'dummy_chain',

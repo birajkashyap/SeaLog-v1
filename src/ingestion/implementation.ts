@@ -33,30 +33,37 @@ export class LogIngestionServiceImpl implements LogIngestionService {
       throw new ValidationError('Invalid log request', request);
     }
 
-    // Parse timestamp or use current time
-    const eventTimestamp = request.timestamp
-      ? new Date(request.timestamp)
-      : new Date();
-
     // Insert into database
     // Server will automatically assign:
     // - ingested_at (trusted server time)
     // - sequence_number (global monotonic)
-    const log = await storageService.insertLog({
-      source_service: request.source_service,
-      log_level: request.log_level,
-      message: request.message,
-      metadata: request.metadata,
-      timestamp: eventTimestamp,
-      ingested_at: new Date(), // Will be overridden by DB default
-    });
+    const log = await storageService.insertLog(this.toLogInsert(request));
 
-    return {
-      log_id: log.log_id,
-      sequence_number: log.sequence_number,
-      acknowledged_at: log.ingested_at.toISOString(),
-      batch_status: log.batch_id ? 'batched' : 'pending',
-    };
+    return this.toIngestResponse(log);
+  }
+
+  /**
+   * Ingest a batch atomically.
+   *
+   * The request order is preserved for insert operations; PostgreSQL assigns
+   * the authoritative sequence_number for each row.
+   */
+  async ingestBatch(requests: IngestRequest[]): Promise<IngestResponse[]> {
+    if (requests.length === 0) {
+      throw new ValidationError('Batch must contain at least one log', { logs: requests });
+    }
+
+    for (const [index, request] of requests.entries()) {
+      if (!this.validate(request)) {
+        throw new ValidationError(`Invalid log request at index ${index}`, request);
+      }
+    }
+
+    const logs = await storageService.insertLogs(
+      requests.map((request) => this.toLogInsert(request)),
+    );
+
+    return logs.map(this.toIngestResponse);
   }
 
   /**
@@ -69,6 +76,30 @@ export class LogIngestionServiceImpl implements LogIngestionService {
     } catch (error) {
       return false;
     }
+  }
+
+  private toLogInsert(request: IngestRequest) {
+    const eventTimestamp = request.timestamp
+      ? new Date(request.timestamp)
+      : new Date();
+
+    return {
+      source_service: request.source_service,
+      log_level: request.log_level,
+      message: request.message,
+      metadata: request.metadata,
+      timestamp: eventTimestamp,
+      ingested_at: new Date(), // Overridden by DB default
+    };
+  }
+
+  private toIngestResponse(log: Awaited<ReturnType<typeof storageService.insertLog>>): IngestResponse {
+    return {
+      log_id: log.log_id,
+      sequence_number: log.sequence_number,
+      acknowledged_at: log.ingested_at.toISOString(),
+      batch_status: log.batch_id ? 'batched' : 'pending',
+    };
   }
 }
 

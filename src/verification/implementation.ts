@@ -18,6 +18,7 @@ import type {
   AuditEvidence,
   TimestampCheckResult,
   ChainVerificationResult,
+  NoveltyMetrics,
 } from './index';
 import type { LogEntry } from '../ingestion';
 import type { AnchorStatus } from '../anchoring';
@@ -142,6 +143,8 @@ export class VerificationServiceImpl implements VerificationService {
         content_matches: contentMatches,
         timestamp_check: timestampCheck,
         chain_valid: chainValid,
+        // ─── Novelty Metrics ─────────────────────────────────────────────
+        novelty: this.computeNoveltyMetrics(merkleProofValid, contentMatches, timestampCheck),
       },
     };
 
@@ -159,13 +162,29 @@ export class VerificationServiceImpl implements VerificationService {
   }
 
   /**
-   * Verify a batch
+   * Verify a batch using zero-trust reconstruction.
+   *
+   * This re-fetches every log in the batch, rebuilds the Merkle tree, and
+   * compares the recomputed root to the stored batch commitment. The blockchain
+   * anchor remains part of the result, but it is no longer the only check.
    */
   async verifyBatch(batchId: string): Promise<BatchVerificationResult> {
     const batch = await storageService.getBatchById(batchId);
     if (!batch) {
       throw new IntegrityError(`Batch ${batchId} not found`);
     }
+
+    const batchLogs = await storageService.getLogsByBatchId(batchId);
+    const tree = batchLogs.length > 0 ? buildTree(batchLogs) : null;
+    const recomputedRoot = tree?.root ?? '';
+    const rootMatch = recomputedRoot === batch.merkle_root;
+    const logCountMatches = batchLogs.length === batch.log_count;
+    const batchChainValid = this.verifySingleBatchChainLink(batch);
+    const consistencyCheck = {
+      root_matches: rootMatch,
+      log_count_matches: logCountMatches,
+      batch_chain_valid: batchChainValid,
+    };
 
     let anchorStatus: AnchorStatus;
     if (batch.anchor_tx_hash) {
@@ -179,10 +198,25 @@ export class VerificationServiceImpl implements VerificationService {
       };
     }
 
+    const integrityScore = this.computeBatchIntegrityScore(
+      rootMatch,
+      logCountMatches,
+      batchChainValid,
+    );
+    const anchorValid = batch.anchor_tx_hash ? anchorStatus.is_anchored : true;
+
     return {
-      valid: anchorStatus.is_anchored,
+      valid: rootMatch && logCountMatches && batchChainValid && anchorValid,
       batch,
       merkle_root: batch.merkle_root,
+      recomputed_root: recomputedRoot,
+      root_match: rootMatch,
+      integrity_score: integrityScore,
+      processing_time_ms: batch.processing_time_ms,
+      number_of_logs: batch.log_count,
+      tree_depth: tree?.depth ?? 0,
+      log_count_verified: batchLogs.length,
+      consistency_check: consistencyCheck,
       blockchain_anchor: anchorStatus,
       verification_url: batch.anchor_tx_hash
         ? this.anchorService.getExplorerUrl(batch.anchor_tx_hash)
@@ -307,6 +341,8 @@ export class VerificationServiceImpl implements VerificationService {
         end_time: batch!.end_time,
         log_count: verification.batch.log_count,
         merkle_root: verification.batch.merkle_root,
+        processing_time_ms: batch!.processing_time_ms,
+        tree_depth: batch!.tree_depth,
         batch_hash: batch!.batch_hash,
         prev_batch_chain_hash: verification.batch.prev_batch_chain_hash,
         batch_chain_hash: verification.batch.batch_chain_hash,
@@ -429,6 +465,68 @@ export class VerificationServiceImpl implements VerificationService {
     // Simplified — full implementation would use provider.getBlockNumber()
     // and subtract the transaction's block number
     return 6;
+  }
+
+  // ─── Novelty Metrics Computation ─────────────────────────────────────────────
+
+  /**
+   * Compute the novelty metric bundle for a single log verification.
+   *
+   * Scoring (out of 100, purely additive deductions):
+   *   Starting score: 100
+   *   −40  if merkle_proof_valid is false   (mathematical integrity broken)
+   *   −30  if content_integrity is false    (payload tampered)
+   *   −30  if timestamp_skew is HIGH         (suspicious backdating)
+   *
+   * These weights are documented in Section 4.2 of the research paper.
+   */
+  private computeNoveltyMetrics(
+    merkleProofValid: boolean,
+    contentIntegrity: boolean,
+    timestampCheck: TimestampCheckResult,
+  ): NoveltyMetrics {
+    const timestampSkew = this.classifyTimestampSkew(timestampCheck.delta_ms);
+
+    let score = 100;
+    if (!merkleProofValid)          score -= 40;
+    if (!contentIntegrity)          score -= 30;
+    if (timestampSkew === 'HIGH')   score -= 30;
+
+    return {
+      integrity_score: Math.max(0, score),
+      timestamp_skew:  timestampSkew,
+      root_match:      merkleProofValid,  // root recomputation IS the proof
+      proof_source:    'DERIVED',
+    };
+  }
+
+  /**
+   * Batch-level integrity scoring for demo/comparison reporting.
+   */
+  private computeBatchIntegrityScore(
+    rootMatch: boolean,
+    logCountMatches: boolean,
+    batchChainValid: boolean,
+  ): number {
+    let score = 100;
+    if (!rootMatch) score -= 40;
+    if (!logCountMatches) score -= 30;
+    if (!batchChainValid) score -= 30;
+    return Math.max(0, score);
+  }
+
+  /**
+   * Classify the absolute value of delta_ms into a skew tier.
+   *
+   *  LOW    → |delta| ≤ 5 000 ms   (normal network round-trip / clock jitter)
+   *  MEDIUM → |delta| ≤ 60 000 ms  (tolerable; flag for monitoring)
+   *  HIGH   → |delta| > 60 000 ms  (suspicious; treat as backdating signal)
+   */
+  private classifyTimestampSkew(delta_ms: number): 'LOW' | 'MEDIUM' | 'HIGH' {
+    const abs = Math.abs(delta_ms);
+    if (abs <= 5_000)  return 'LOW';
+    if (abs <= 60_000) return 'MEDIUM';
+    return 'HIGH';
   }
 
   /**

@@ -42,6 +42,28 @@ app.post('/api/v1/logs/ingest', async (req, res) => {
 });
 
 /**
+ * Ingest multiple log entries atomically
+ * POST /api/v1/logs/ingest-batch
+ */
+app.post('/api/v1/logs/ingest-batch', async (req, res) => {
+  try {
+    if (!Array.isArray(req.body?.logs)) {
+      res.status(400).json({ error: 'Request body must include logs array' });
+      return;
+    }
+
+    const result = await logIngestionService.ingestBatch(req.body.logs);
+    res.status(201).json({ logs: result });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message, details: error.details });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+/**
  * Verify a log entry
  * GET /api/v1/verify/log/:logId
  */
@@ -129,10 +151,41 @@ app.post('/api/v1/admin/batch/trigger', async (_req, res) => {
     if (!batch) {
       res.json({ message: 'No unbatched logs available' });
     } else {
-      res.json({ batch_id: batch.batch_id, log_count: batch.log_count });
+      res.json({
+        batch_id: batch.batch_id,
+        log_count: batch.log_count,
+        processing_time_ms: batch.processing_time_ms,
+        tree_depth: batch.tree_depth,
+      });
     }
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Development-only tamper simulation
+ * POST /api/v1/admin/simulate-tamper/:log_id
+ */
+app.post('/api/v1/admin/simulate-tamper/:log_id', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.status(403).json({ error: 'Tamper simulation is disabled in production' });
+    return;
+  }
+
+  try {
+    const { storageService } = await import('./storage/implementation');
+    await storageService.simulateTamper(req.params.log_id);
+    res.json({
+      success: true,
+      message: 'Log tampered successfully',
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      res.status(404).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

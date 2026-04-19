@@ -63,6 +63,42 @@ export interface TimestampCheckResult {
 }
 
 /**
+ * Novelty metrics computed on top of the core verification checks.
+ * These fields are always present in VerificationResult.verification_steps
+ * and provide a richer, audit-friendly summary of the integrity state.
+ */
+export interface NoveltyMetrics {
+  /**
+   * Composite integrity score (0–100).
+   * Deductions:
+   *   – 40 pts if merkle_proof_valid is false
+   *   – 30 pts if content_integrity is false
+   *   – 30 pts if timestamp_skew is HIGH (suspicious backdating)
+   */
+  integrity_score: number;
+
+  /**
+   * Qualitative assessment of timestamp skew between event_time and ingested_at.
+   *  LOW    → |delta_ms| ≤ 5 000 ms  (normal network jitter)
+   *  MEDIUM → |delta_ms| ≤ 60 000 ms (acceptable but worth noting)
+   *  HIGH   → |delta_ms| > 60 000 ms (suspicious; possible backdating)
+   */
+  timestamp_skew: 'LOW' | 'MEDIUM' | 'HIGH';
+
+  /**
+   * Explicit boolean: recomputed Merkle root matches the stored batch root.
+   * Mirrors merkle_proof_valid but surfaced as a named field for API clarity.
+   */
+  root_match: boolean;
+
+  /**
+   * Always "DERIVED". Proofs are never read from the merkle_proofs cache table
+   * during verification — they are always recomputed from raw log data.
+   */
+  proof_source: 'DERIVED';
+}
+
+/**
  * Result of walking the cross-batch cryptographic chain.
  * A valid chain means every batch_chain_hash can be recomputed from
  * (prev_batch_chain_hash, merkle_root) and batch_numbers are contiguous.
@@ -114,6 +150,9 @@ export interface VerificationResult {
      * Does NOT verify prior batches; use verifyBatchChain() for full chain audit.
      */
     chain_valid: boolean;
+    // ─── Novelty Metrics ───────────────────────────────────────────────────────
+    // Computed on top of the core checks. Always present. See NoveltyMetrics.
+    novelty: NoveltyMetrics;
   };
   audit_bundle_url?: string;
 }
@@ -122,6 +161,18 @@ export interface BatchVerificationResult {
   valid: boolean;
   batch: Batch;
   merkle_root: string;
+  recomputed_root: string;
+  root_match: boolean;
+  integrity_score: number;
+  processing_time_ms: number;
+  number_of_logs: number;
+  tree_depth: number;
+  log_count_verified: number;
+  consistency_check: {
+    root_matches: boolean;
+    log_count_matches: boolean;
+    batch_chain_valid: boolean;
+  };
   blockchain_anchor: AnchorStatus;
   verification_url: string;  // Etherscan link
 }

@@ -23,6 +23,8 @@ export interface Batch {
   end_time: Date;
   log_count: number;
   merkle_root: string;
+  processing_time_ms: number;
+  tree_depth: number;
 
   /**
    * Full batch commitment: keccak256(batch_id || start || end || log_count || merkle_root || batch_chain_hash)

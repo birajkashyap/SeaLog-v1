@@ -47,8 +47,10 @@ export class BatchProcessorImpl implements BatchProcessor {
       throw new Error('Cannot create batch from empty logs');
     }
 
-    // 1. Build Merkle tree
+    // 1. Build Merkle tree and capture demo/performance metrics
+    const treeBuildStartedAt = Date.now();
     const tree = buildTree(logs);
+    const processingTimeMs = Date.now() - treeBuildStartedAt;
     const merkleRoot = tree.root;
 
     // 2. Fetch previous batch to obtain chain link
@@ -73,6 +75,8 @@ export class BatchProcessorImpl implements BatchProcessor {
       end_time: endTime,
       log_count: logCount,
       merkle_root: merkleRoot,
+      processing_time_ms: processingTimeMs,
+      tree_depth: tree.depth,
       // batch_hash is recomputed post-insert with the real batch_id
       batch_hash: batchChainHash, // Temporary — overwritten below
       prev_batch_chain_hash: prevBatch ? prevBatch.batch_chain_hash : null,
@@ -167,9 +171,13 @@ export class BatchProcessorImpl implements BatchProcessor {
     }
 
     // Check if we should create batch based on strategy
+    // Manual/admin triggers should produce a batch whenever logs are available.
+    // The scheduler calls this at the configured interval, so time/hybrid
+    // strategies also batch the currently pending logs on each tick.
     const shouldBatch =
+      !this.config ||
       this.config?.strategy === 'time' ||
-      (this.config?.strategy === 'hybrid' && logs.length >= (this.config?.size_threshold || 0)) ||
+      this.config?.strategy === 'hybrid' ||
       (this.config?.strategy === 'size' && logs.length >= (this.config?.size_threshold || 0));
 
     if (!shouldBatch) {
