@@ -13,6 +13,8 @@ import { logIngestionService } from './ingestion/implementation';
 import { batchProcessor } from './batching/implementation';
 import { verificationService } from './verification/implementation';
 import { ValidationError, IntegrityError } from './types';
+import { createAnchorService } from './anchoring/implementation';
+import { storageService } from './storage/implementation';
 
 const app = express();
 app.use((req, res, next) => {
@@ -183,6 +185,60 @@ app.post('/api/v1/admin/batch/trigger', async (_req, res) => {
 });
 
 /**
+ * Manually anchor a batch to the blockchain
+ * POST /api/v1/admin/batch/:batchId/anchor
+ */
+app.post('/api/v1/admin/batch/:batchId/anchor', async (req, res) => {
+  try {
+    const batchId = req.params.batchId;
+    const batch = await storageService.getBatchById(batchId);
+    
+    if (!batch) {
+      res.status(404).json({ error: 'Batch not found' });
+      return;
+    }
+
+    if (batch.anchor_tx_hash) {
+      res.status(400).json({ error: 'Batch already anchored' });
+      return;
+    }
+
+    const anchorService = createAnchorService();
+    const result = await anchorService.anchorBatch(batch.merkle_root, batch.batch_id);
+
+    await storageService.updateBatchAnchor(
+      batch.batch_id,
+      result.tx_hash,
+      result.block_number,
+      result.timestamp || new Date()
+    );
+
+    res.json({
+      success: true,
+      tx_hash: result.tx_hash,
+      block_number: result.block_number,
+      explorer_url: anchorService.getExplorerUrl(result.tx_hash),
+    });
+  } catch (error: any) {
+    console.error('Anchoring failed:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * Get all anchored batches (Historical Ledger)
+ * GET /api/v1/batches/anchored
+ */
+app.get('/api/v1/batches/anchored', async (_req, res) => {
+  try {
+    const batches = await storageService.getAnchoredBatches();
+    res.json(batches);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * Development-only tamper simulation
  * POST /api/v1/admin/simulate-tamper/:log_id
  */
@@ -193,7 +249,6 @@ app.post('/api/v1/admin/simulate-tamper/:log_id', async (req, res) => {
   }
 
   try {
-    const { storageService } = await import('./storage/implementation');
     await storageService.simulateTamper(req.params.log_id);
     res.json({
       success: true,

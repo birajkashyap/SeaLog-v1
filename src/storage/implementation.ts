@@ -235,6 +235,22 @@ export class PrismaStorageService implements StorageService {
   }
 
   /**
+   * Get all batches that have been anchored to the blockchain.
+   * Ordered by anchored_at date (descending).
+   */
+  async getAnchoredBatches(limit: number = 50): Promise<Batch[]> {
+    const batches = await this.prisma.batch.findMany({
+      where: {
+        status: 'anchored',
+        anchorTxHash: { not: null },
+      },
+      orderBy: { anchoredAt: 'desc' },
+      take: limit,
+    });
+    return batches.map(this.mapToBatch);
+  }
+
+  /**
    * Get a contiguous range of batches ordered by batch_number.
    * Used by verifyBatchChain() to walk the chain and detect gaps.
    *

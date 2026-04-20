@@ -17,10 +17,12 @@ import {
   generateProof,
   GENESIS_CHAIN_HASH,
 } from '../merkle/implementation';
+import { createAnchorService } from '../anchoring/implementation';
 
 export class BatchProcessorImpl implements BatchProcessor {
   private intervalId?: NodeJS.Timeout;
   private config?: BatchConfig;
+  private anchorService = createAnchorService();
 
   /**
    * Create batch from logs
@@ -117,7 +119,37 @@ export class BatchProcessorImpl implements BatchProcessor {
       });
     }
 
+    // 7. Trigger background anchoring (Phase 3 enhancement)
+    //    We do not await this to avoid blocking the API response.
+    this.anchorBatchInBackground(batch.batch_id, merkleRoot).catch((err) => {
+      console.error(`[Background Anchoring] Failed for batch ${batch.batch_id}:`, err);
+    });
+
     return { ...batch, batch_hash: finalBatchHash };
+  }
+
+  /**
+   * Helper to perform anchoring in the background
+   */
+  private async anchorBatchInBackground(batchId: string, merkleRoot: string): Promise<void> {
+    try {
+      // 1. Submit anchor to blockchain
+      const result = await this.anchorService.anchorBatch(merkleRoot, batchId);
+
+      // 2. Update status and storage
+      await storageService.updateBatchAnchor(
+        batchId,
+        result.tx_hash,
+        result.block_number,
+        result.timestamp || new Date()
+      );
+      
+      console.log(`[Background Anchoring] Success: ${batchId} anchored in tx ${result.tx_hash}`);
+    } catch (error) {
+      // If anchoring fails, we don't throw (since it's a background task),
+      // but we could set the batch status to 'failed' in the DB.
+      console.error(`[Background Anchoring] Critical Error:`, error);
+    }
   }
 
   /**

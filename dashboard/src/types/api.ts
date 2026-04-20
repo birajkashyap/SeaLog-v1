@@ -136,6 +136,60 @@ export interface VerificationResult {
 
 export interface HealthResponse {
   status: string;
-  service: string;
   version: string;
+  service: string;
+}
+
+export interface TimestampCheckResult {
+  event_time: string;
+  ingested_at: string;
+  delta_ms: number;
+  suspicious: boolean;
+  threshold_ms: number;
+}
+
+export interface NoveltyMetrics {
+  integrity_score: number;
+  timestamp_skew: 'LOW' | 'MEDIUM' | 'HIGH';
+  root_match: boolean;
+  proof_source: 'DERIVED';
+}
+
+export interface ChainVerificationResult {
+  valid: boolean;
+  batches_checked: number;
+  chain_intact: boolean;
+  missing_batch_numbers: number[];
+  broken_link_at?: number;
+  genesis_hash: string;
+  from_batch_number: number;
+  to_batch_number: number;
+}
+
+export interface AuditEvidence {
+  version: string;
+  generated_at: string;
+  verification_type: 'log' | 'batch';
+  log_entry?: LogEntry;
+  batch: Batch;
+  merkle_proof?: MerkleProof;
+  blockchain_anchor?: {
+    network: string;
+    contract_address: string;
+    tx_hash: string;
+    block_number: number;
+    timestamp: string;
+    explorer_url: string;
+  };
+  verification_result: {
+    merkle_proof_valid: boolean;
+    root_anchored: boolean;
+    content_integrity: boolean;
+    overall_status: 'VALID' | 'INVALID' | 'PARTIAL';
+  };
+  reproducibility_guide: {
+    instructions: string;
+    smart_contract_abi: any;
+    verification_script: string;
+  };
 }

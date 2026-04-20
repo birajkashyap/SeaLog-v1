@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   CheckCircle,
+  Clock,
   Code2,
   ExternalLink,
   FileJson,
@@ -17,16 +18,18 @@ import {
   Upload,
 } from 'lucide-react';
 import { api } from './api/client';
+import { getTreeLevels } from './utils/tree';
 import type {
   Batch,
   BatchVerificationResult,
+  ChainVerificationResult,
   IngestRequest,
   IngestResponse,
   LogLevel,
   VerificationResult,
 } from './types/api';
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 type ApiStatus = 'checking' | 'online' | 'offline';
 type IngestionMode = 'manual' | 'json';
 
@@ -92,6 +95,7 @@ const STEPS = [
   { label: 'Merkle Tree', icon: Shield },
   { label: 'Verification', icon: CheckCircle },
   { label: 'Blockchain', icon: Link2 },
+  { label: 'Chain Integrity', icon: Shield },
 ];
 
 function compactHash(value?: string, length = 10) {
@@ -272,6 +276,7 @@ function LogsTable({
             <th>Source</th>
             <th>Level</th>
             <th>Message</th>
+            <th>Timestamp</th>
             <th>Log ID</th>
             <th>Ack</th>
           </tr>
@@ -295,6 +300,9 @@ function LogsTable({
                   </span>
                 </td>
                 <td>{log.message}</td>
+                <td style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                  {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '-'}
+                </td>
                 <td className="mono">{compactHash(log.log_id, 7)}</td>
                 <td className="mono" style={{ color: 'var(--text-secondary)' }}>
                   {log.acknowledged_at ? log.acknowledged_at.slice(11, 23) : 'queued'}
@@ -509,6 +517,8 @@ export default function App() {
   const [selectedLogVerification, setSelectedLogVerification] = useState<VerificationResult | null>(null);
   const [beforeTamper, setBeforeTamper] = useState<VerificationResult | null>(null);
   const [afterTamper, setAfterTamper] = useState<VerificationResult | null>(null);
+  const [chainVerification, setChainVerification] = useState<ChainVerificationResult | null>(null);
+  const [ledger, setLedger] = useState<Batch[]>([]);
   const [lastApiResponse, setLastApiResponse] = useState<unknown>();
   const [error, setError] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -524,6 +534,15 @@ export default function App() {
   useEffect(() => {
     void checkHealth();
   }, []);
+
+  useEffect(() => {
+    if (step === 3 && activeBatchId) {
+      void verifyCurrentBatch(3);
+    }
+    if (step === 5) {
+      void fetchLedger();
+    }
+  }, [step, activeBatchId]);
 
   async function runAction<T>(name: string, action: () => Promise<T>): Promise<T | null> {
     setLoadingAction(name);
@@ -591,7 +610,11 @@ export default function App() {
   }
 
   function loadSampleLogs() {
-    setQueuedLogs(SAMPLE_LOGS.map((log) => toDisplayLog(log)));
+    const freshSamples = SAMPLE_LOGS.map((log) => ({
+      ...log,
+      timestamp: new Date().toISOString()
+    }));
+    setQueuedLogs(freshSamples.map((log) => toDisplayLog(log)));
     setSubmittedLogs([]);
     setBatchVerification(null);
     setCurrentBatch(null);
@@ -599,6 +622,18 @@ export default function App() {
     setAfterTamper(null);
     setSelectedLogVerification(null);
     setError(null);
+  }
+
+  function loadSkewedSample() {
+    const skewedTime = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+    const log: IngestRequest = {
+      source_service: 'attacker-node',
+      log_level: 'ERROR',
+      message: 'SIMULATED ATTACK: Backdated log entry (-1hr)',
+      metadata: { attack_type: 'timestamp_skew', target_time: skewedTime },
+      timestamp: skewedTime,
+    };
+    setQueuedLogs((logs) => [...logs, toDisplayLog(log)]);
   }
 
   function validateRawJson(): IngestRequest[] | null {
@@ -744,6 +779,54 @@ export default function App() {
     setStep(4);
   }
 
+  async function runChainWalk() {
+    const result = await runAction('chain-walk', () => api.verifyChain());
+    if (result) {
+      setChainVerification(result);
+    }
+  }
+
+  async function downloadAuditBundle() {
+    if (!selectedLogId) {
+      setError('Select a log first to download its audit evidence');
+      return;
+    }
+
+    const bundle = await runAction('audit-bundle', () => api.getAuditBundle(selectedLogId));
+    if (!bundle) return;
+
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `audit-log-${selectedLogId.slice(0, 8)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  async function anchorCurrentBatch() {
+    if (!activeBatchId) {
+      setError('No active batch selected for anchoring');
+      return;
+    }
+
+    const result = await runAction('anchor-batch', () => api.anchorBatch(activeBatchId));
+    if (result && result.success) {
+      // Re-verify the batch to refresh the UI with new anchor data
+      await verifyCurrentBatch(5);
+      await fetchLedger();
+    }
+  }
+
+  async function fetchLedger() {
+    const result = await runAction('fetch-ledger', () => api.getAnchoredBatches());
+    if (result) {
+      setLedger(result);
+    }
+  }
+
   function resetDemo() {
     setStep(1);
     setQueuedLogs([]);
@@ -752,6 +835,7 @@ export default function App() {
     setCurrentBatch(null);
     setBatchVerification(null);
     setSelectedLogVerification(null);
+    setChainVerification(null);
     setBeforeTamper(null);
     setAfterTamper(null);
     setLastApiResponse(undefined);
@@ -858,6 +942,9 @@ export default function App() {
                     <button className="btn btn-ghost" onClick={loadSampleLogs}>
                       <Upload size={16} /> Load Samples
                     </button>
+                    <button className="btn btn-ghost" onClick={loadSkewedSample} title="Simulate a log with an old timestamp to test skew detection">
+                      <Clock size={16} /> Load Skewed
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -956,23 +1043,42 @@ export default function App() {
                 <div className="batch-root">{currentBatch.merkle_root}</div>
               </div>
 
-              <div className="tree-container live-tree">
-                <div className="tree-node">
-                  <div className={`tree-node-circle root-node ${batchVerification && !batchVerification.root_match ? 'tampered' : ''}`}>
-                    {compactHash(batchVerification?.recomputed_root || currentBatch.merkle_root, 5)}
-                  </div>
-                  <div className="tree-node-label">Root</div>
-                </div>
-                <div className="tree-level">
-                  {submittedLogs.map((log) => (
-                    <div key={log.local_id} className="tree-node" onClick={() => log.log_id && setSelectedLogId(log.log_id)}>
-                      <div className={`tree-node-circle leaf-node ${selectedLogId === log.log_id ? 'selected' : ''} ${afterTamper?.log_entry.log_id === log.log_id ? 'tampered' : ''}`}>
-                        #{log.sequence_number}
-                      </div>
-                      <div className="tree-node-label">{log.source_service}</div>
+              <div className="tree-container live-tree" style={{ padding: '40px 20px' }}>
+                {(() => {
+                  const levels = getTreeLevels(submittedLogs);
+                  // Reverse so root is at the top
+                  return levels.slice().reverse().map((level, levelIdx) => (
+                    <div key={levelIdx} className="tree-level" style={{ marginBottom: '32px' }}>
+                      {level.map((hash, nodeIdx) => {
+                        const isRoot = levelIdx === 0;
+                        const isLeaf = levelIdx === levels.length - 1;
+                        
+                        // Check if this node is tampered
+                        let isTampered = false;
+                        if (isLeaf) {
+                          const log = submittedLogs[nodeIdx];
+                          isTampered = !!afterTamper && afterTamper.log_entry.log_id === log.log_id;
+                        } else if (isRoot) {
+                          isTampered = !!batchVerification && !batchVerification.root_match;
+                        }
+
+                        return (
+                          <div key={nodeIdx} className="tree-node">
+                            <div 
+                              className={`tree-node-circle ${isRoot ? 'root-node' : isLeaf ? 'leaf-node' : ''} ${isTampered ? 'tampered' : ''}`}
+                              title={hash}
+                            >
+                              {isLeaf ? `#${submittedLogs[nodeIdx].sequence_number}` : compactHash(hash, 4)}
+                            </div>
+                            <div className="tree-node-label">
+                              {isLeaf ? submittedLogs[nodeIdx].source_service : isRoot ? 'Root' : `Level ${levels.length - 1 - levelIdx}`}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
+                  ));
+                })()}
               </div>
 
               <div className="btn-row" style={{ marginTop: '28px', justifyContent: 'space-between' }}>
@@ -1023,21 +1129,101 @@ export default function App() {
               <TamperComparison before={beforeTamper} after={afterTamper} />
 
               {selectedLogVerification && (
-                <div className="verify-card special" style={{ marginTop: '20px' }}>
-                  <div className="verify-label">Selected Log Proof</div>
-                  <div className={`verify-status ${selectedLogVerification.valid ? 'ok' : 'err'}`}>
-                    {selectedLogVerification.valid ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-                    {selectedLogVerification.valid ? 'VALID' : 'FAILED'} / Score {selectedLogVerification.verification_steps.novelty.integrity_score}
+                <>
+                  <div className="verify-grid" style={{ marginTop: '20px' }}>
+                    <div className="verify-card special">
+                      <div className="verify-label">Selected Log Proof</div>
+                      <div className={`verify-status ${selectedLogVerification.valid ? 'ok' : 'err'}`}>
+                        {selectedLogVerification.valid ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                        {selectedLogVerification.valid ? 'VALID' : 'FAILED'}
+                      </div>
+                      <div className="batch-root" style={{ fontSize: '0.7rem' }}>Log ID: {selectedLogVerification.log_entry.log_id}</div>
+                    </div>
+                    
+                    <div className="verify-card" style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                      <div className="verify-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Shield size={14} /> Zero-Trust Provenance
+                      </div>
+                      <div className="verify-status info" style={{ color: '#818cf8', fontSize: '0.9rem' }}>
+                        {selectedLogVerification.verification_steps.novelty.proof_source.toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Proof recomputed from raw data.</div>
+                    </div>
                   </div>
-                  <div className="batch-root">Leaf: {selectedLogVerification.merkle_proof.leaf_hash}</div>
-                </div>
+
+                  <div className="verify-card" style={{ marginTop: '20px' }}>
+                    <div className="verify-label">Novelty 1: Dual-Timestamp Audit</div>
+                    <div className="audit-table" style={{ marginTop: '12px' }}>
+                      <div className="info-grid">
+                        <div className="info-item">
+                          <label>Event Time (Client)</label>
+                          <span style={{ fontSize: '0.9rem' }}>{new Date(selectedLogVerification.verification_steps.timestamp_check.event_time).toLocaleString()}</span>
+                        </div>
+                        <div className="info-item">
+                          <label>Ingest Time (Server)</label>
+                          <span style={{ fontSize: '0.9rem' }}>{new Date(selectedLogVerification.verification_steps.timestamp_check.ingested_at).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', padding: '10px', borderRadius: '6px', background: 'rgba(0,0,0,0.2)' }}>
+                        <Clock size={16} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>Clock Delta</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 'bold' }}>{selectedLogVerification.verification_steps.timestamp_check.delta_ms}ms</div>
+                        </div>
+                        <div className={`badge ${selectedLogVerification.verification_steps.timestamp_check.suspicious ? 'badge-error' : 'badge-info'}`}>
+                          SKEW: {selectedLogVerification.verification_steps.novelty.timestamp_skew}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="verify-card" style={{ marginTop: '20px', border: '1px border-dashed #52525b', padding: '24px' }}>
+                    <div className="verify-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                      <Code2 size={16} /> SeaLog Innovation Summary
+                    </div>
+                    
+                    <div className="step-list">
+                      {[
+                        { label: 'N1: Dual-Timestamp check (Audit)', done: !selectedLogVerification.verification_steps.timestamp_check.suspicious },
+                        { label: 'N2: Zero-Trust "Derived" Proof path', done: selectedLogVerification.verification_steps.novelty.proof_source === 'DERIVED' },
+                        { label: 'N3: Deterministic Root Match (Step 3)', done: selectedLogVerification.verification_steps.novelty.root_match },
+                        { label: 'N4: Real-time Integrity Score (0-100)', done: selectedLogVerification.verification_steps.novelty.integrity_score > 0 }
+                      ].map((s, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                          <div style={{ 
+                            width: '24px', height: '24px', borderRadius: '50%', background: s.done ? '#22c55e' : '#f43f5e', 
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#fff' 
+                          }}>
+                            {s.done ? <Check size={14} /> : '!'}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: '500', opacity: s.done ? 1 : 0.6 }}>{s.label}</div>
+                            <div style={{ fontSize: '11px', opacity: 0.4 }}>Verification condition maintained.</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ 
+                      marginTop: '20px', padding: '16px', borderRadius: '8px', background: 'rgba(99,102,241,0.05)', 
+                      fontSize: '13px', opacity: 0.8, borderLeft: '4px solid #6366f1', lineHeight: '1.5'
+                    }}>
+                      <strong>Research Note:</strong> These innovations ensure that trust is shifted from the database administrator to independent cryptographic verification, preventing both log modification and backdating.
+                    </div>
+                  </div>
+                </>
               )}
 
               <div className="btn-row" style={{ marginTop: '28px', justifyContent: 'space-between' }}>
                 <button className="btn btn-ghost" onClick={() => setStep(3)}>Back</button>
-                <button className="btn btn-primary" onClick={() => setStep(5)} disabled={!batchVerification}>
-                  Blockchain Status
-                </button>
+                <div className="btn-row">
+                  <button className="btn btn-ghost" onClick={() => void downloadAuditBundle()} disabled={!selectedLogId || !!loadingAction}>
+                    Download Audit
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setStep(5)} disabled={!batchVerification}>
+                    Blockchain Status
+                  </button>
+                </div>
               </div>
             </>
           )}
@@ -1060,6 +1246,133 @@ export default function App() {
                     <ExternalLink size={16} /> View Transaction
                   </a>
                 )}
+              </div>
+
+              {!batchVerification?.blockchain_anchor.is_anchored && (
+                <div className="btn-row" style={{ marginTop: '24px', justifyContent: 'center' }}>
+                  <button className="btn btn-primary glow" onClick={() => void anchorCurrentBatch()} disabled={!!loadingAction}>
+                    {loadingAction === 'anchor-batch' ? <><span className="spinner" /> Anchoring...</> : <><Link2 size={16} /> Push to Blockchain</>}
+                  </button>
+                </div>
+              )}
+
+              <div style={{ marginTop: '40px' }}>
+                <h3 className="metrics-title">Blockchain Transaction Ledger</h3>
+                <div className="log-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Batch</th>
+                        <th>Anchored At</th>
+                        <th>Merkle Root</th>
+                        <th>Explorer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledger.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', padding: '32px', opacity: 0.5 }}>
+                            No anchors found in the ledger.
+                          </td>
+                        </tr>
+                      ) : (
+                        ledger.map((b) => (
+                          <tr key={b.batch_id} title={`Batch Root: ${b.merkle_root}\nLogs in this batch: ${b.log_count}`}>
+                            <td>
+                              <span className="badge badge-info" title={`Batch ID: ${b.batch_id}`}>#{b.batch_number}</span>
+                            </td>
+                            <td>{b.anchored_at ? new Date(b.anchored_at).toLocaleString() : 'N/A'}</td>
+                            <td className="mono">{compactHash(b.merkle_root, 6)}</td>
+                            <td>
+                              <a 
+                                href={api.getExplorerUrl(b.anchor_tx_hash!)} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="status-text online"
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                              >
+                                <ExternalLink size={14} /> View
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="btn-row" style={{ marginTop: '28px', justifyContent: 'space-between' }}>
+                <button className="btn btn-ghost" onClick={() => setStep(4)}>Back</button>
+                <button className="btn btn-primary" onClick={() => setStep(6)}>
+                  Chain Integrity
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 6 && (
+            <>
+              <div className="panel-header">
+                <h2 className="panel-title">Step 6 - Cross-Batch Chain Integrity</h2>
+                <p className="panel-subtitle">Walking the global cryptographic chain to detect missing, reordered, or deleted batches.</p>
+              </div>
+
+              <div className="verify-tools" style={{ marginBottom: '24px', justifyContent: 'center' }}>
+                <button className="btn btn-primary glow" onClick={() => void runChainWalk()} disabled={!!loadingAction}>
+                  {loadingAction === 'chain-walk' ? <><span className="spinner" /> Auditing Chain...</> : <><Shield size={16} /> Run Full Chain Walk</>}
+                </button>
+              </div>
+
+              {chainVerification && (
+                <div className="animate-in">
+                  <div className="verify-grid">
+                    <div className={`verify-card ${chainVerification.valid ? 'valid' : 'invalid'}`}>
+                      <div className="verify-label">Chain Status</div>
+                      <div className={`verify-status ${chainVerification.valid ? 'ok' : 'err'}`}>
+                        {chainVerification.valid ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                        {chainVerification.valid ? 'INTACT' : 'COMPROMISED'}
+                      </div>
+                    </div>
+                    <div className="verify-card">
+                      <div className="verify-label">Batches Verified</div>
+                      <div className="verify-status info">{chainVerification.batches_checked}</div>
+                    </div>
+                  </div>
+
+                  {!chainVerification.valid && (
+                    <div className="tamper-alert" style={{ marginTop: '16px' }}>
+                      <AlertTriangle size={18} />
+                      <span>
+                        {chainVerification.missing_batch_numbers.length > 0
+                          ? `Gaps detected! Missing batch numbers: ${chainVerification.missing_batch_numbers.join(', ')}`
+                          : `Chain link broken at batch #${chainVerification.broken_link_at}`}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="chain-visual-container">
+                    <div className="chain-line" />
+                    <div className="chain-batches">
+                      {Array.from({ length: chainVerification.batches_checked }).map((_, i) => {
+                        const batchNum = chainVerification.from_batch_number + i;
+                        const isBroken = chainVerification.broken_link_at === batchNum;
+                        return (
+                          <div key={batchNum} className={`chain-batch-node ${isBroken ? 'broken' : ''}`}>
+                            <div className="chain-batch-circle">
+                              {isBroken ? <AlertTriangle size={14} /> : <Check size={14} />}
+                            </div>
+                            <div className="chain-batch-label">Batch #{batchNum}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="btn-row" style={{ marginTop: '28px' }}>
+                <button className="btn btn-ghost" onClick={() => setStep(5)}>Back</button>
               </div>
             </>
           )}

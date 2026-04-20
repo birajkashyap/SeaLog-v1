@@ -569,3 +569,76 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   .verify-tools { grid-template-columns: 1fr; }
   .score-card { align-items: flex-start; flex-direction: column; }
 }
+/* ─── Chain Integrity Step ───────────────────────── */
+.chain-visual-container {
+  margin-top: 40px;
+  padding: 40px 20px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 12px;
+  position: relative;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.chain-line {
+  position: absolute;
+  top: 50%;
+  left: 40px;
+  right: 40px;
+  height: 2px;
+  background: var(--border-color);
+  z-index: 1;
+  transform: translateY(-50%);
+}
+
+.chain-batches {
+  display: flex;
+  gap: 60px;
+  position: relative;
+  z-index: 2;
+  padding: 0 40px;
+}
+
+.chain-batch-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.chain-batch-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 2px solid var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--success);
+  box-shadow: 0 0 15px var(--accent-green-glow);
+  transition: all 0.3s ease;
+  background: var(--panel-bg);
+}
+
+.chain-batch-node.broken .chain-batch-circle {
+  border-color: var(--error);
+  color: var(--error);
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+}
+
+.chain-batch-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--bg-color);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.chain-batch-node.broken .chain-batch-label {
+  color: var(--error);
+}

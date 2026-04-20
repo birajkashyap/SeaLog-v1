@@ -55,8 +55,12 @@ export class EthereumAnchorService implements AnchorService {
       }
 
       // Submit transaction
-      const tx = await this.contract.anchorBatch(merkleRoot, batchId, {
-        gasLimit: this.config.gas_limit || 100000,
+      // INVARIANT: batchId is a UUID string, but contract expects bytes32.
+      // We hash the UUID to get a deterministic 32-byte representation.
+      const hashedBatchId = ethers.id(batchId);
+      
+      const tx = await this.contract.anchorBatch(merkleRoot, hashedBatchId, {
+        gasLimit: this.config.gas_limit || 250000,
       });
 
       console.log(`Transaction submitted: ${tx.hash}`);
