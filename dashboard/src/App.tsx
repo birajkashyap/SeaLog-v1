@@ -522,6 +522,7 @@ export default function App() {
   const [lastApiResponse, setLastApiResponse] = useState<unknown>();
   const [error, setError] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [showRawJson, setShowRawJson] = useState(false);
 
   const allLogs = submittedLogs.length > 0 ? submittedLogs : queuedLogs;
   const activeBatchId = currentBatch?.batch_id || batchVerification?.batch?.batch_id;
@@ -1116,6 +1117,11 @@ export default function App() {
                 <button className="btn btn-primary" onClick={() => void verifyCurrentBatch(4)} disabled={!activeBatchId || !!loadingAction}>
                   Verify Batch
                 </button>
+                {selectedLogVerification && (
+                  <button className="btn btn-ghost" onClick={() => setShowRawJson(!showRawJson)}>
+                    <FileJson size={16} /> {showRawJson ? 'Hide Raw JSON' : 'View Raw API JSON'}
+                  </button>
+                )}
               </div>
 
               {selectedDisplayLog && (
@@ -1130,7 +1136,26 @@ export default function App() {
 
               {selectedLogVerification && (
                 <>
+                  {showRawJson && (
+                    <div style={{ marginTop: '16px', background: '#09090b', padding: '16px', borderRadius: '8px', border: '1px solid #27272a', overflowX: 'auto' }}>
+                      <div style={{ marginBottom: '8px', fontSize: '12px', color: '#a1a1aa', fontWeight: 'bold' }}>
+                        RAW BACKEND API RESPONSE (GET /api/v1/verify/log/:id)
+                      </div>
+                      <pre className="json-editor" style={{ margin: 0, padding: 0, minHeight: 'auto', background: 'transparent' }}>
+                        {JSON.stringify(selectedLogVerification, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  
                   <div className="verify-grid" style={{ marginTop: '20px' }}>
+                    <div className="verify-card special" style={{ border: `1px solid ${selectedLogVerification.valid ? 'rgba(34,197,94,0.3)' : 'rgba(244,63,94,0.3)'}` }}>
+                      <div className="verify-label">Integrity Score</div>
+                      <div className="verify-status" style={{ fontSize: '1.2rem', color: selectedLogVerification.verification_steps.novelty.integrity_score === 100 ? '#22c55e' : '#f43f5e' }}>
+                        {selectedLogVerification.verification_steps.novelty.integrity_score} / 100
+                      </div>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Dynamic Tamper & Skew Metric</div>
+                    </div>
+
                     <div className="verify-card special">
                       <div className="verify-label">Selected Log Proof</div>
                       <div className={`verify-status ${selectedLogVerification.valid ? 'ok' : 'err'}`}>
@@ -1148,6 +1173,16 @@ export default function App() {
                         {selectedLogVerification.verification_steps.novelty.proof_source.toUpperCase()}
                       </div>
                       <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Proof recomputed from raw data.</div>
+                    </div>
+
+                    <div className="verify-card" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                      <div className="verify-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Link2 size={14} /> Root Match
+                      </div>
+                      <div className={`verify-status ${selectedLogVerification.verification_steps.novelty.root_match ? 'ok' : 'err'}`} style={{ fontSize: '0.9rem' }}>
+                        {selectedLogVerification.verification_steps.novelty.root_match ? 'CONFIRMED' : 'MISMATCH'}
+                      </div>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.6 }}>Deterministic DB constraint.</div>
                     </div>
                   </div>
 
