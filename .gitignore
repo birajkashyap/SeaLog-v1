@@ -33,3 +33,6 @@ PROJECT_STATUS.md
 # Hardhat
 contracts/artifacts/
 contracts/cache/
+
+# Benchmarks
+benchmarks/results/
