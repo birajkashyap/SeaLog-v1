@@ -40,8 +40,16 @@ interface IngestResponse {
   batch_status: string;
 }
 
+interface MerkleProof {
+  siblings: string[];
+  path: ('left' | 'right')[];
+  tree_depth: number;
+  leaf_hash: string;
+}
+
 interface VerifyResponse {
   valid: boolean;
+  merkle_proof: MerkleProof;
   verification_steps: {
     merkle_proof_valid: boolean;
     novelty: {
@@ -61,6 +69,9 @@ interface SummaryRow {
   treeDepth: number;
   tamperPass: boolean;
   skewPass: boolean;
+  avgProofLength: number;
+  avgProofBytes: number;
+  e2eMs: number;
 }
 
 // ─── Utility Functions ────────────────────────────────────────────────────────
@@ -122,7 +133,13 @@ function generateLogs(n: number, timestampOverride?: string): LogPayload[] {
 
 // ─── Per-N Benchmark ──────────────────────────────────────────────────────────
 
+const PROOF_SAMPLE_COUNT = 3;      // Fixed: sample 3 logs for proof size analysis
+const HASH_BYTES         = 32;     // Keccak-256: 32 bytes per hash (excluding 0x prefix)
+
 async function benchmarkN(n: number): Promise<SummaryRow> {
+
+  // High-resolution pipeline clock — excludes artificial delays
+  let pipelineStart = 0;
 
   console.log(`===== BENCHMARK START: N = ${n} =====`);
   divider();
@@ -135,6 +152,9 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
 
   const logs = generateLogs(n);
   step('Sending ingestion request...');
+
+  // Pipeline clock starts here — immediately before first real work
+  pipelineStart = performance.now();
 
   const t0 = performance.now();
   const ingestRes = await post('/logs/ingest-batch', { logs });
@@ -182,6 +202,7 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
 
   const verifyIds   = pickK(logIds, K_VERIFY);
   const verifyTimes: number[] = [];
+  const proofSamples: MerkleProof[] = [];
 
   for (const id of verifyIds) {
     const tv0 = performance.now();
@@ -197,10 +218,44 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
     }
 
     verifyTimes.push(tv1 - tv0);
+
+    // Collect proof objects for proof-size analysis (cap at PROOF_SAMPLE_COUNT)
+    if (proofSamples.length < PROOF_SAMPLE_COUNT && vData.merkle_proof) {
+      proofSamples.push(vData.merkle_proof);
+    }
   }
+
+  // Pipeline clock stops after last verification completes
+  const pipelineEnd = performance.now();
 
   const verifyAvgMs = verifyTimes.reduce((a, b) => a + b, 0) / verifyTimes.length;
   console.log(`  Average Time (${K_VERIFY} logs) : ${verifyAvgMs.toFixed(2)} ms`);
+  divider();
+  await sleep(STEP_DELAY_MS);
+
+  // ── Phase 3b: PROOF SIZE ANALYSIS ─────────────────────────────────────────
+
+  console.log('[PROOF SIZE ANALYSIS]');
+  step(`Sampling ${proofSamples.length} logs for proof generation...`);
+  await sleep(STEP_DELAY_MS / 2);
+
+  const proofLengths = proofSamples.map((p) => p.siblings.length);
+  const avgProofLength = proofLengths.reduce((a, b) => a + b, 0) / proofLengths.length;
+  // Each sibling hash is a Keccak-256 digest = 32 bytes (the 0x prefix is encoding, not data)
+  const avgProofBytes = avgProofLength * HASH_BYTES;
+
+  console.log(`  Average Proof Length : ${avgProofLength.toFixed(1)} hashes`);
+  console.log(`  Average Proof Size   : ${avgProofBytes.toFixed(0)} bytes`);
+  console.log(`  Tree Depth (current) : ${treeDepth}`);
+  divider();
+  await sleep(STEP_DELAY_MS);
+
+  // ── Phase 3c: END-TO-END LATENCY ──────────────────────────────────────────
+
+  console.log('[END-TO-END LATENCY]');
+  const e2eMs = pipelineEnd - pipelineStart;
+  console.log(`  Total Pipeline Time  : ${e2eMs.toFixed(2)} ms`);
+  console.log(`  (Ingestion + Batch Creation + Verification — delays excluded)`);
   divider();
   await sleep(STEP_DELAY_MS);
 
@@ -264,6 +319,9 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
     treeDepth,
     tamperPass,
     skewPass,
+    avgProofLength,
+    avgProofBytes,
+    e2eMs,
   };
 }
 
@@ -285,6 +343,20 @@ function printSummary(rows: SummaryRow[]): void {
   }
 
   console.log('');
+  console.log('  Proof Size Scaling:');
+  for (const r of rows) {
+    const label = `N=${String(r.n).padEnd(3)}`;
+    console.log(`  ${label} | Proof Length: ${r.avgProofLength.toFixed(1)} hashes | Proof Size: ${r.avgProofBytes.toFixed(0)} bytes`);
+  }
+
+  console.log('');
+  console.log('  End-to-End Pipeline Latency:');
+  for (const r of rows) {
+    const label = `N=${String(r.n).padEnd(3)}`;
+    console.log(`  ${label} | E2E: ${r.e2eMs.toFixed(2)} ms`);
+  }
+
+  console.log('');
   console.log('  Security (all N):');
   console.log(`  Tamper Detection     : ${rows.every((r) => r.tamperPass) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
   console.log(`  Skew Detection       : ${rows.every((r) => r.skewPass) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
@@ -295,7 +367,7 @@ function printSummary(rows: SummaryRow[]): void {
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
 function saveCSV(rows: SummaryRow[]): string {
-  const header = 'N,Ingest_ms,Batch_ms,Verify_avg_ms,Tree_Depth,Tamper_Pass,Skew_Pass';
+  const header = 'N,Ingest_ms,Batch_ms,Verify_avg_ms,Tree_Depth,Avg_Proof_Length,Avg_Proof_Bytes,E2E_ms,Tamper_Pass,Skew_Pass';
   const lines  = rows.map((r) =>
     [
       r.n,
@@ -303,6 +375,9 @@ function saveCSV(rows: SummaryRow[]): string {
       r.batchMs.toFixed(2),
       r.verifyAvgMs.toFixed(2),
       r.treeDepth,
+      r.avgProofLength.toFixed(2),
+      r.avgProofBytes.toFixed(0),
+      r.e2eMs.toFixed(2),
       r.tamperPass ? 1 : 0,
       r.skewPass  ? 1 : 0,
     ].join(','),
