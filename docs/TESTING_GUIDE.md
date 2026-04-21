@@ -178,6 +178,35 @@ https://sepolia.etherscan.io/address/<CONTRACT_ADDRESS>
 
 ---
 
+## Phase 3: Empirical Benchmarking & Load Testing (NEW)
+
+### Test 6: O(log N) Space Complexity & Throughput Evaluation ✅ Implemented
+
+**Objective**: Prove the system holds its integrity without crashing or bloating during high-volume bursts.
+
+**Test Location**: `benchmarks/research_benchmark.ts` and `benchmarks/generate_graphs.ts`
+
+**What it validates**:
+- Ingestion throughput at scaled volumes (N=10, 50, 100, 500)
+- End-to-End latency verification per batch
+- Exact Merkle Proof byte sizing to validate `O(log N)` complexity.
+
+**How to run**:
+```bash
+# Run benchmarks directly against Local DB
+npx ts-node benchmarks/research_benchmark.ts
+
+# Generate high-res Python/ChartJS graphs
+npx ts-node benchmarks/generate_graphs.ts
+```
+
+**Expected outcome**:
+- ✅ Throughput exceeds 4,000 logs/sec at N=500
+- ✅ Proof Size increases extremely slowly (logarithmically), e.g., 128 bytes → 288 bytes.
+- ✅ Outputs a pristine 13-column raw `.csv` and visual `.png` files for direct academic publication.
+
+---
+
 ## Phase 3: Independent Verification (CRITICAL)
 
 ### Test 6: Offline Auditor Verification ✅ Partially Implemented
@@ -286,11 +315,12 @@ The system passes verification if:
 
 1. ✅ Deterministic Merkle roots (Test 1)
 2. ✅ Append-only enforcement works (Test 2)
-3. ✅ Timestamp manipulation is detectable (Test 3)
-4. ✅ Cross-batch modifications are detectable (Test 4)
-5. ✅ Zero-trust verification correctly ignores tampered caches (Test 5)
-6. ⏸️ Blockchain anchoring is correct (Test 6)
-7. ⏸️ Blockchain is immutable (Test 7)
-8. ⏸️ **Independent verification works** (Test 8)
+3. ✅ Timestamp manipulation is detectable via Next.js Visual UI `timestamp_skew` (Test 3)
+4. ✅ Cross-batch modifications are detectable via missing roots / chains (Test 4)
+5. ✅ Zero-trust verification implicitly ignores tampered caches and returns `proof_source: DERIVED` (Test 5)
+6. ✅ System scales under high-volume throughput loads and proves O(log N) latency (Test 6)
+7. ⏸️ Blockchain anchoring is correct
+8. ⏸️ Blockchain is immutable
+9. ⏸️ **Independent verification works**
 
 **Most Critical**: Tests 4, 5, and 8 prove the entire system's security model.

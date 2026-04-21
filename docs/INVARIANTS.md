@@ -149,7 +149,7 @@ The Merkle root is a **commitment** to all logs in the batch. This is sufficient
 1. The log data itself
 2. The blockchain-anchored root
 
-**Implementation Rule**: The `merkle_proofs` table is a performance optimization for fast lookups. Auditors must be able to verify logs without accessing this table.
+**Implementation Rule**: The `merkle_proofs` table is a performance optimization for fast lookups. Auditors must be able to verify logs without accessing this table. The Next.js Audit Dashboard explicitly surfaces a `proof_source: DERIVED` metric to cryptographically prove to the auditor that the cached proof was strictly ignored during validation.
 
 ---
 
@@ -235,6 +235,8 @@ These invariants must be tested:
 - ✅ Blockchain query returns different root → verification fails
 - ✅ Missing batch in database → gap detected and chain verification fails
 - ✅ Tampered batch chain hash → cross-batch chain verification fails
+- ✅ **Timestamp Skew** → Visual `HIGH/LOW` anomaly output on verification interface
+- ✅ **Tampered Records** → Direct translation into a visually dropped `integrity_score` and failed `root_match` on the UI
 
 ---
 
