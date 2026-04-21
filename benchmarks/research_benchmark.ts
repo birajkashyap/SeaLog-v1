@@ -64,14 +64,17 @@ interface VerifyResponse {
 interface SummaryRow {
   n: number;
   ingestMs: number;
+  ingestThroughput: number;    // logs/sec
   batchMs: number;
-  verifyAvgMs: number;
   treeDepth: number;
-  tamperPass: boolean;
-  skewPass: boolean;
+  verifyAvgMs: number;
+  verifyMinMs: number;
+  verifyMaxMs: number;
   avgProofLength: number;
   avgProofBytes: number;
   e2eMs: number;
+  tamperRate: number;          // 0.0 – 1.0
+  skewRate: number;            // 0.0 – 1.0
 }
 
 // ─── Utility Functions ────────────────────────────────────────────────────────
@@ -166,11 +169,11 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
   const ingestData = (await ingestRes.json()) as { logs: IngestResponse[] };
   const logIds = ingestData.logs.map((l) => l.log_id);
 
-  const ingestMs  = t1 - t0;
-  const throughput = (n / ingestMs) * 1000;
+  const ingestMs       = t1 - t0;
+  const ingestThroughput = (n / ingestMs) * 1000;
 
   console.log(`  Total Time : ${ingestMs.toFixed(2)} ms`);
-  console.log(`  Throughput : ${throughput.toFixed(1)} logs/sec`);
+  console.log(`  Throughput : ${ingestThroughput.toFixed(1)} logs/sec`);
   divider();
   await sleep(STEP_DELAY_MS);
 
@@ -229,7 +232,11 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
   const pipelineEnd = performance.now();
 
   const verifyAvgMs = verifyTimes.reduce((a, b) => a + b, 0) / verifyTimes.length;
-  console.log(`  Average Time (${K_VERIFY} logs) : ${verifyAvgMs.toFixed(2)} ms`);
+  const verifyMinMs = Math.min(...verifyTimes);
+  const verifyMaxMs = Math.max(...verifyTimes);
+
+  console.log(`  Average Time (${K_VERIFY} logs) : ${verifyAvgMs.toFixed(2)} ms  [min=${verifyMinMs.toFixed(2)} ms, max=${verifyMaxMs.toFixed(2)} ms]`);
+
   divider();
   await sleep(STEP_DELAY_MS);
 
@@ -276,7 +283,9 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
   const ptData = (await postTamperRes.json()) as VerifyResponse;
   const tamperPass = ptData.verification_steps.novelty.integrity_score < 100;
 
-  console.log(`  Tamper Detection        : ${tamperPass ? 'PASS' : 'FAIL'}`);
+  const tamperRate = tamperPass ? 1.0 : 0.0;
+  console.log(`  Tamper Detection        : ${tamperPass ? 'PASS' : 'FAIL'} (rate=${tamperRate.toFixed(2)})`);
+
 
   // --- Timestamp Skew Detection ---
   step('Running skew test...');
@@ -301,8 +310,10 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
     if (svData.verification_steps.novelty.timestamp_skew === 'HIGH') highCount++;
   }
 
-  const skewPass = highCount === SKEW_COUNT;
-  console.log(`  Timestamp Skew Detection: ${skewPass ? 'PASS' : 'FAIL'}`);
+  const skewRate = highCount / SKEW_COUNT;
+  const skewPass = skewRate === 1.0;
+  console.log(`  Timestamp Skew Detection: ${skewPass ? 'PASS' : 'FAIL'} (${highCount}/${SKEW_COUNT} flagged, rate=${skewRate.toFixed(2)})`);
+
 
   divider();
   console.log(`===== BENCHMARK END =====`);
@@ -314,14 +325,17 @@ async function benchmarkN(n: number): Promise<SummaryRow> {
   return {
     n,
     ingestMs,
+    ingestThroughput,
     batchMs,
-    verifyAvgMs,
     treeDepth,
-    tamperPass,
-    skewPass,
+    verifyAvgMs,
+    verifyMinMs,
+    verifyMaxMs,
     avgProofLength,
     avgProofBytes,
     e2eMs,
+    tamperRate,
+    skewRate,
   };
 }
 
@@ -337,7 +351,7 @@ function printSummary(rows: SummaryRow[]): void {
     const label   = `N=${String(r.n).padEnd(3)}`;
     const ingest  = `Ingest: ${r.ingestMs.toFixed(1)} ms`.padEnd(20);
     const batch   = `Batch: ${r.batchMs.toFixed(1)} ms`.padEnd(22);
-    const verify  = `Verify: ${r.verifyAvgMs.toFixed(2)} ms`.padEnd(22);
+    const verify  = `Verify: ${r.verifyAvgMs.toFixed(2)} ms [${r.verifyMinMs.toFixed(2)}–${r.verifyMaxMs.toFixed(2)}]`.padEnd(38);
     const depth   = `Depth: ${r.treeDepth}`;
     console.log(`  ${label} | ${ingest} | ${batch} | ${verify} | ${depth}`);
   }
@@ -358,8 +372,8 @@ function printSummary(rows: SummaryRow[]): void {
 
   console.log('');
   console.log('  Security (all N):');
-  console.log(`  Tamper Detection     : ${rows.every((r) => r.tamperPass) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
-  console.log(`  Skew Detection       : ${rows.every((r) => r.skewPass) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
+  console.log(`  Tamper Detection     : ${rows.every((r) => r.tamperRate === 1.0) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
+  console.log(`  Skew Detection       : ${rows.every((r) => r.skewRate === 1.0) ? 'PASS (100%)' : 'PARTIAL FAILURE'}`);
   console.log('');
   console.log('══════════════════════════════════════════════════════');
 }
@@ -367,27 +381,45 @@ function printSummary(rows: SummaryRow[]): void {
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
 function saveCSV(rows: SummaryRow[]): string {
-  const header = 'N,Ingest_ms,Batch_ms,Verify_avg_ms,Tree_Depth,Avg_Proof_Length,Avg_Proof_Bytes,E2E_ms,Tamper_Pass,Skew_Pass';
-  const lines  = rows.map((r) =>
+  const header = [
+    'N',
+    'Ingest_ms',
+    'Ingest_throughput_logs_per_sec',
+    'Batch_ms',
+    'Tree_Depth',
+    'Verify_avg_ms',
+    'Verify_min_ms',
+    'Verify_max_ms',
+    'Avg_Proof_Length_hashes',
+    'Avg_Proof_Bytes',
+    'E2E_ms',
+    'Tamper_Detection_Rate',
+    'Skew_Detection_Rate',
+  ].join(',');
+
+  const lines = rows.map((r) =>
     [
       r.n,
       r.ingestMs.toFixed(2),
+      r.ingestThroughput.toFixed(1),
       r.batchMs.toFixed(2),
-      r.verifyAvgMs.toFixed(2),
       r.treeDepth,
-      r.avgProofLength.toFixed(2),
+      r.verifyAvgMs.toFixed(2),
+      r.verifyMinMs.toFixed(2),
+      r.verifyMaxMs.toFixed(2),
+      r.avgProofLength.toFixed(1),
       r.avgProofBytes.toFixed(0),
       r.e2eMs.toFixed(2),
-      r.tamperPass ? 1 : 0,
-      r.skewPass  ? 1 : 0,
+      r.tamperRate.toFixed(2),
+      r.skewRate.toFixed(2),
     ].join(','),
   );
 
-  const csv        = [header, ...lines].join('\n');
-  const dir        = path.join(path.dirname(__filename), 'results');
+  const csv      = [header, ...lines].join('\n');
+  const dir      = path.join(path.dirname(__filename), 'results');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const filename   = `research_benchmark_${Date.now()}.csv`;
-  const filepath   = path.join(dir, filename);
+  const filename = `research_benchmark_${Date.now()}.csv`;
+  const filepath = path.join(dir, filename);
   fs.writeFileSync(filepath, csv);
   return filepath;
 }
