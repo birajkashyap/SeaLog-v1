@@ -119,7 +119,7 @@ npm test -- --testNamePattern="Timestamp"
 
 ## Phase 2: Blockchain Anchoring Tests (SEPOLIA)
 
-### Test 4: Anchor Correctness ⏸️ Requires Deployment
+### Test 4: Anchor Correctness ✅ Implemented
 
 **Objective**: Prove blockchain is source of truth
 
@@ -162,7 +162,7 @@ https://sepolia.etherscan.io/address/<CONTRACT_ADDRESS>
 
 ---
 
-### Test 5: Anchor Immutability ⏸️ Requires Deployment
+### Test 5: Anchor Immutability ✅ Implemented
 
 **Objective**: Prove you can't rewrite history
 
@@ -207,9 +207,9 @@ npx ts-node benchmarks/generate_graphs.ts
 
 ---
 
-## Phase 3: Independent Verification (CRITICAL)
+## Phase 4: Independent Verification (CRITICAL)
 
-### Test 6: Offline Auditor Verification ✅ Partially Implemented
+### Test 7: Offline Auditor Verification ✅ Implemented
 
 **Objective**: Zero trust in SeaLog backend
 
@@ -319,8 +319,8 @@ The system passes verification if:
 4. ✅ Cross-batch modifications are detectable via missing roots / chains (Test 4)
 5. ✅ Zero-trust verification implicitly ignores tampered caches and returns `proof_source: DERIVED` (Test 5)
 6. ✅ System scales under high-volume throughput loads and proves O(log N) latency (Test 6)
-7. ⏸️ Blockchain anchoring is correct
-8. ⏸️ Blockchain is immutable
-9. ⏸️ **Independent verification works**
+7. ✅ Blockchain anchoring is correct (Test 4)
+8. ✅ Blockchain is immutable (Test 5)
+9. ✅ **Independent verification works** (Test 7)
 
 **Most Critical**: Tests 4, 5, and 8 prove the entire system's security model.
